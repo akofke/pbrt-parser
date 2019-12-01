@@ -3,7 +3,7 @@ use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{line_ending, multispace0, multispace1};
 use nom::branch::alt;
 use nom::combinator::{map, map_res};
-use nom::multi::separated_nonempty_list;
+use nom::multi::{separated_nonempty_list, many1};
 use nom::number::complete::float;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
@@ -11,12 +11,34 @@ use nom::sequence::separated_pair;
 
 mod transform;
 
+pub type Float2 = [f32; 2];
+pub type Float3 = [f32; 3];
+
 pub enum HeaderStmt {
 
 }
 
 pub enum WorldStmt {
 
+}
+
+pub enum Param {
+    Int(i32),
+    Float(f32),
+    Point2(Float2),
+    Point3(Float3),
+    Vector3(Float3),
+    Normal3(Float3),
+    Spectrum(SpectrumVal),
+    Bool(bool),
+    String(String),
+}
+
+pub enum SpectrumVal {
+    Rgb(Float3),
+    Xyz(Float3),
+    Sampled(Vec<f32>),
+    Blackbody((f32, f32))
 }
 
 fn fixed_float_list<A>(s: &str) -> IResult<&str, Box<A>>
@@ -34,6 +56,10 @@ fn float_list(s: &str) -> IResult<&str, Vec<f32>> {
 
 
 fn ws_or_comment(s: &str) -> IResult<&str, ()> {
+    many1(single_ws_or_comment)(s).map(|(s, _)| (s, ()))
+}
+
+fn single_ws_or_comment(s: &str) -> IResult<&str, ()> {
     alt((multispace1, comment))(s).map(|(s, _)| (s, ()))
 }
 
@@ -48,7 +74,7 @@ fn comment(s: &str) -> IResult<&str, &str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{comment, float_list, fixed_float_list};
+    use crate::{comment, float_list, fixed_float_list, ws_or_comment};
     use nom::error::ErrorKind;
 
     #[test]
@@ -56,6 +82,11 @@ mod tests {
         assert_eq!(comment("# comment\n"), Ok(("\n", " comment")));
         assert_eq!(comment("not # comment"), Err(nom::Err::Error(("not # comment", ErrorKind::Tag))));
         assert_eq!(comment("#no newline"), Ok(("", "no newline")));
+    }
+
+    #[test]
+    fn test_multiple_ws() {
+        assert_eq!(ws_or_comment("#comment\n\t\n#another\n"), Ok(("", ())));
     }
 
     #[test]

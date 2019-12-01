@@ -69,6 +69,11 @@ mod tests {
         assert_eq!(
             transform_stmt("Translate 1 2 3"),
             Ok(("", TransformStmt::Translate(Box::new([1.0, 2.0, 3.0]))))
+        );
+
+        assert_eq!(
+            transform_stmt("Translate\n \t1 #comment\n2 3"),
+            Ok(("", TransformStmt::Translate(Box::new([1.0, 2.0, 3.0]))))
         )
     }
 }
