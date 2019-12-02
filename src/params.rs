@@ -1,12 +1,28 @@
 use crate::{Float2, Float3, ws_or_comment};
 use nom::IResult;
-use nom::character::complete::{digit1, anychar, none_of};
-use nom::combinator::{map_res, opt, map};
+use nom::character::complete::{digit1, anychar, none_of, space1, alphanumeric1};
+use nom::combinator::{map_res, opt, map, value};
 use nom::number::complete::float;
-use nom::sequence::{tuple, terminated, delimited, preceded};
+use nom::sequence::{tuple, terminated, delimited, preceded, separated_pair};
 use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::multi::{many0, separated_nonempty_list};
+
+#[derive(PartialEq, Debug)]
+pub struct Param {
+    pub name: String,
+    pub value: ParamVal
+}
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+enum ParamType {
+    Int, Float, Point2, Point3, Vector2, Vector3, Normal3, Spectrum(SpectrumType), Bool, String
+}
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+enum SpectrumType {
+    Rgb, Xyz, Sampled, Blackbody
+}
 
 #[derive(PartialEq, Debug)]
 pub enum ParamVal {
@@ -14,6 +30,7 @@ pub enum ParamVal {
     Float(f32),
     Point2(Float2),
     Point3(Float3),
+    Vector2(Float2),
     Vector3(Float3),
     Normal3(Float3),
     Spectrum(SpectrumVal),
@@ -27,6 +44,44 @@ pub enum SpectrumVal {
     Xyz(Float3),
     Sampled(Vec<f32>),
     Blackbody((f32, f32))
+}
+
+/// Parses a parameter declaration `"type name"` and returns a tuple of the parameter
+/// type and name.
+fn param_declaration(s: &str) -> IResult<&str, (ParamType, String)> {
+    delimited(
+        tag("\""),
+        // assumes names can only be alphanumeric, change this if needed
+        separated_pair(
+            param_type,
+            space1,
+            map(alphanumeric1, |s: &str| s.to_string())),
+        tag("\"")
+    )(s)
+}
+
+fn param_type(s: &str) -> IResult<&str, ParamType> {
+    alt((
+        value(ParamType::Int, tag("integer")),
+        value(ParamType::Float, tag("float")),
+        value(ParamType::Point2, tag("point2")),
+        value(ParamType::Vector2, tag("vector2")),
+        value(ParamType::Vector3, alt((tag("vector3"), tag("vector")))),
+        value(ParamType::Point3, alt((tag("point3"), tag("point")))),
+        value(ParamType::Normal3, alt((tag("normal3"), tag("normal")))),
+        map(spectrum_type, ParamType::Spectrum),
+        value(ParamType::Bool, tag("bool")),
+        value(ParamType::String, tag("string")),
+    ))(s)
+}
+
+fn spectrum_type(s: &str) -> IResult<&str, SpectrumType> {
+    alt((
+        value(SpectrumType::Rgb, alt((tag("rgb"), tag("color")))),
+        value(SpectrumType::Xyz, tag("xyz")),
+        value(SpectrumType::Sampled, tag("spectrum")),
+        value(SpectrumType::Blackbody, tag("blackbody")),
+    ))(s)
 }
 
 fn parameter_value<P>(param_parser: P, s: &str) -> IResult<&str, Vec<ParamVal>>
@@ -93,9 +148,16 @@ fn point2_val(s: &str) -> IResult<&str, ParamVal> {
     float2(s).map(|(s, v)| (s, ParamVal::Point2(v)))
 }
 
+fn vector2_val(s: &str) -> IResult<&str, ParamVal> {
+    float2(s).map(|(s, v)| (s, ParamVal::Vector2(v)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::{assert_errs_immediate, ok_consuming};
+    use nom::error::{ErrorKind, make_error};
+    use nom::Err::Error;
 
     fn make_vals<T: Clone>(f: impl Fn(T) -> ParamVal, vals: &[T]) -> Vec<ParamVal> {
         vals.iter().cloned().map(f).collect()
@@ -112,5 +174,18 @@ mod tests {
         assert_eq!(
             parameter_value(vector3_val, "[ 1 1 1.0 2.0\n2#comment\n2 ]"),
             Ok(("", make_vals(ParamVal::Vector3, &[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]))));
+    }
+
+    #[test]
+    fn test_param_decl() {
+        assert_eq!(
+            param_declaration(r#""float name""#),
+            ok_consuming((ParamType::Float, "name".to_string()))
+        );
+
+        assert_eq!(
+            param_declaration(r#""nope name""#),
+            Err((Error((r#"nope name""#, ErrorKind::Tag))))
+        );
     }
 }

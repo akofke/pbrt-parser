@@ -67,6 +67,21 @@ fn comment(s: &str) -> IResult<&str, &str> {
 }
 
 #[cfg(test)]
+pub(crate) mod test_helpers {
+    use nom::IResult;
+    use nom::error::ErrorKind;
+    use std::fmt::Debug;
+
+    pub fn ok_consuming<T: Debug + PartialEq>(val: T) -> IResult<&'static str, T> {
+        Ok(("", val))
+    }
+
+    pub fn assert_errs_immediate<T: Debug + PartialEq>(f: impl Fn(&str) -> IResult<&str, T>, err: ErrorKind, s: &str) {
+        assert_eq!(f(s), Err(nom::Err::Error((s, err))));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use crate::{comment, float_list, fixed_float_list, ws_or_comment};
     use nom::error::ErrorKind;
