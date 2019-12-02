@@ -8,8 +8,10 @@ use nom::number::complete::float;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
 use nom::sequence::separated_pair;
+use std::array::TryFromSliceError;
 
 mod transform;
+mod params;
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
@@ -22,23 +24,15 @@ pub enum WorldStmt {
 
 }
 
-pub enum Param {
-    Int(i32),
-    Float(f32),
-    Point2(Float2),
-    Point3(Float3),
-    Vector3(Float3),
-    Normal3(Float3),
-    Spectrum(SpectrumVal),
-    Bool(bool),
-    String(String),
+// TODO: fix duplication
+fn try_from_vec_2(v: Vec<f32>) -> Result<Float2, TryFromSliceError>
+{
+    v.as_slice().try_into()
 }
 
-pub enum SpectrumVal {
-    Rgb(Float3),
-    Xyz(Float3),
-    Sampled(Vec<f32>),
-    Blackbody((f32, f32))
+fn try_from_vec_3(v: Vec<f32>) -> Result<Float3, TryFromSliceError>
+{
+    v.as_slice().try_into()
 }
 
 fn fixed_float_list<A>(s: &str) -> IResult<&str, Box<A>>
