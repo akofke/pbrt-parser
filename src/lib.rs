@@ -1,27 +1,31 @@
 use nom::IResult;
 use nom::bytes::complete::{tag, take_till};
-use nom::character::complete::{line_ending, multispace0, multispace1};
+use nom::character::complete::{line_ending, multispace0, multispace1, none_of};
 use nom::branch::alt;
 use nom::combinator::{map, map_res};
-use nom::multi::{separated_nonempty_list, many1};
+use nom::multi::{separated_nonempty_list, many1, many0};
 use nom::number::complete::float;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
-use nom::sequence::separated_pair;
+use nom::sequence::{separated_pair, delimited, terminated};
 use std::array::TryFromSliceError;
 
 mod transform;
 mod params;
+mod statements;
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
 
-pub enum HeaderStmt {
-
+fn quoted_string(s: &str) -> IResult<&str, String> {
+    map(
+        delimited(tag("\""), many0(none_of("\"")), tag("\"")),
+        |chars: Vec<char>| chars.into_iter().collect()
+    )(s)
 }
 
-pub enum WorldStmt {
-
+fn ws_term<'a, T>(f: impl Fn(&'a str) -> IResult<&'a str, T>) -> impl Fn(&'a str) -> IResult<&'a str, T> {
+    terminated(f, ws_or_comment)
 }
 
 // TODO: fix duplication
@@ -71,6 +75,7 @@ pub(crate) mod test_helpers {
     use nom::IResult;
     use nom::error::ErrorKind;
     use std::fmt::Debug;
+    use crate::params::ParamVal;
 
     pub fn ok_consuming<T: Debug + PartialEq>(val: T) -> IResult<&'static str, T> {
         Ok(("", val))
@@ -78,6 +83,10 @@ pub(crate) mod test_helpers {
 
     pub fn assert_errs_immediate<T: Debug + PartialEq>(f: impl Fn(&str) -> IResult<&str, T>, err: ErrorKind, s: &str) {
         assert_eq!(f(s), Err(nom::Err::Error((s, err))));
+    }
+
+    pub fn make_vals<T: Clone>(f: impl Fn(T) -> ParamVal, vals: &[T]) -> Vec<ParamVal> {
+        vals.iter().cloned().map(f).collect()
     }
 }
 

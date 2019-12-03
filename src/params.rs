@@ -22,7 +22,7 @@ impl Param {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 enum ParamType {
-    Int, Float, Point2, Point3, Vector2, Vector3, Normal3, Spectrum(SpectrumType), Bool, String
+    Int, Float, Point2, Point3, Vector2, Vector3, Normal3, Spectrum(SpectrumType), Bool, String, Texture
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -42,6 +42,7 @@ pub enum ParamVal {
     Spectrum(SpectrumVal),
     Bool(bool),
     String(String),
+    Texture(String),
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -52,7 +53,7 @@ pub enum SpectrumVal {
     Blackbody((f32, f32))
 }
 
-fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
+pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
     separated_nonempty_list(ws_or_comment, parameter)(s)
 }
 
@@ -76,6 +77,7 @@ fn parameter(s: &str) -> IResult<&str, Param> {
         },
         ParamType::Bool => parameter_value(bool_val, s),
         ParamType::String => parameter_value(string_val, s),
+        ParamType::Texture => parameter_value(texture_val, s),
     };
     res.map(|(s, value)| (s, Param { name, value }))
 }
@@ -106,6 +108,7 @@ fn param_type(s: &str) -> IResult<&str, ParamType> {
         map(spectrum_type, ParamType::Spectrum),
         value(ParamType::Bool, tag("bool")),
         value(ParamType::String, tag("string")),
+        value(ParamType::Texture, tag("texture")),
     ))(s)
 }
 
@@ -189,6 +192,13 @@ fn string_val(s: &str) -> IResult<&str, ParamVal> {
     )(s)
 }
 
+fn texture_val(s: &str) -> IResult<&str, ParamVal> {
+    map(
+        delimited(tag("\""), many0(none_of("\"")), tag("\"")),
+        |chars: Vec<char>| ParamVal::Texture(chars.into_iter().collect())
+    )(s)
+}
+
 fn vector3_val(s: &str) -> IResult<&str, ParamVal> {
     float3(s).map(|(s, v)| (s, ParamVal::Vector3(v)))
 }
@@ -212,13 +222,10 @@ fn vector2_val(s: &str) -> IResult<&str, ParamVal> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{assert_errs_immediate, ok_consuming};
+    use crate::test_helpers::{assert_errs_immediate, ok_consuming, make_vals};
     use nom::error::{ErrorKind, make_error};
     use nom::Err::Error;
 
-    fn make_vals<T: Clone>(f: impl Fn(T) -> ParamVal, vals: &[T]) -> Vec<ParamVal> {
-        vals.iter().cloned().map(f).collect()
-    }
 
     #[test]
     fn test_param_value() {
@@ -271,6 +278,11 @@ mod tests {
         assert_eq!(
             parameter(r#""string type" [ "matte" ]"#),
             ok_consuming(Param::new("type".into(), make_vals(ParamVal::String, &["matte".to_string()])))
+        );
+
+        assert_eq!(
+            parameter(r#""texture Kd" "mydiffuse""#),
+            ok_consuming(Param::new("Kd".into(), make_vals(ParamVal::Texture, &["mydiffuse".to_string()])))
         );
 
         assert_eq!(
