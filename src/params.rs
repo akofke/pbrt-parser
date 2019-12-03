@@ -1,7 +1,7 @@
 use crate::{Float2, Float3, ws_or_comment};
 use nom::IResult;
 use nom::character::complete::{digit1, anychar, none_of, space1, alphanumeric1};
-use nom::combinator::{map_res, opt, map, value};
+use nom::combinator::{map_res, opt, map, value, flat_map, verify};
 use nom::number::complete::float;
 use nom::sequence::{tuple, terminated, delimited, preceded, separated_pair};
 use nom::bytes::complete::tag;
@@ -11,7 +11,13 @@ use nom::multi::{many0, separated_nonempty_list};
 #[derive(PartialEq, Debug)]
 pub struct Param {
     pub name: String,
-    pub value: ParamVal
+    pub value: Vec<ParamVal>
+}
+
+impl Param {
+    pub fn new(name: String, value: Vec<ParamVal>) -> Self {
+        Self {name, value}
+    }
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -38,12 +44,40 @@ pub enum ParamVal {
     String(String),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum SpectrumVal {
     Rgb(Float3),
     Xyz(Float3),
-    Sampled(Vec<f32>),
+    Sampled(Vec<Float2>), // List of (wavelength, value) pairs
     Blackbody((f32, f32))
+}
+
+fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
+    separated_nonempty_list(ws_or_comment, parameter)(s)
+}
+
+fn parameter(s: &str) -> IResult<&str, Param> {
+    let (s, (ty, name)) = terminated(param_declaration, ws_or_comment)(s)?;
+    let res = match ty {
+        ParamType::Int => parameter_value(int_val, s),
+        ParamType::Float => parameter_value(float_val, s),
+        ParamType::Point2 => parameter_value(point2_val, s),
+        ParamType::Point3 => parameter_value(point3_val, s),
+        ParamType::Vector2 => parameter_value(vector2_val, s),
+        ParamType::Vector3 => parameter_value(vector3_val, s),
+        ParamType::Normal3 => parameter_value(normal3_val, s),
+        ParamType::Spectrum(spectrum_type) => {
+            match spectrum_type {
+                SpectrumType::Rgb => parameter_value(rgb_val, s),
+                SpectrumType::Xyz => parameter_value(xyz_val, s),
+                SpectrumType::Sampled => parameter_value(sampled_val, s),
+                SpectrumType::Blackbody => parameter_value(blackbody_val, s),
+            }
+        },
+        ParamType::Bool => parameter_value(bool_val, s),
+        ParamType::String => parameter_value(string_val, s),
+    };
+    res.map(|(s, value)| (s, Param { name, value }))
 }
 
 /// Parses a parameter declaration `"type name"` and returns a tuple of the parameter
@@ -85,17 +119,40 @@ fn spectrum_type(s: &str) -> IResult<&str, SpectrumType> {
 }
 
 fn parameter_value<P>(param_parser: P, s: &str) -> IResult<&str, Vec<ParamVal>>
-    where P: Fn(&str) -> IResult<&str, ParamVal> + Copy // is this right?
+    where P: Fn(&str) -> IResult<&str, ParamVal> // TODO + Copy? see if it makes any perf difference
 {
     // Can be one or more values enclosed in brackets, or single value without brackets
     alt((
-        map(param_parser, |val| vec![val]),
+        map(&param_parser, |val| vec![val]),
         delimited(
             terminated(tag("["), opt(ws_or_comment)),
-            separated_nonempty_list(ws_or_comment, param_parser),
+            separated_nonempty_list(ws_or_comment, &param_parser),
             preceded(opt(ws_or_comment), tag("]"))
         )
     ))(s)
+}
+
+fn rgb_val(s: &str) -> IResult<&str, ParamVal> {
+    map(float3, |v| ParamVal::Spectrum(SpectrumVal::Rgb(v)))(s)
+}
+
+fn xyz_val(s: &str) -> IResult<&str, ParamVal> {
+    map(float3, |v| ParamVal::Spectrum(SpectrumVal::Xyz(v)))(s)
+}
+
+fn sampled_val(s: &str) -> IResult<&str, ParamVal> {
+    // TODO: spd file
+    map(
+        separated_nonempty_list(ws_or_comment, float2),
+        |v| ParamVal::Spectrum(SpectrumVal::Sampled(v))
+    )(s)
+}
+
+fn blackbody_val(s: &str) -> IResult<&str, ParamVal> {
+    map(
+        separated_pair(float, ws_or_comment, float),
+        |v| ParamVal::Spectrum(SpectrumVal::Blackbody(v))
+    )(s)
 }
 
 fn int_val(s: &str) -> IResult<&str, ParamVal> {
@@ -187,5 +244,67 @@ mod tests {
             param_declaration(r#""nope name""#),
             Err((Error((r#"nope name""#, ErrorKind::Tag))))
         );
+    }
+
+    #[test]
+    fn test_parameter() {
+        assert_eq!(
+            parameter(r#""float foo" [1.2]"#),
+            ok_consuming(Param::new("foo".into(), make_vals(ParamVal::Float, &[1.2])))
+        );
+
+        assert_eq!(
+            parameter(r#""integer foo" 5"#),
+            ok_consuming(Param::new("foo".into(), make_vals(ParamVal::Int, &[5])))
+        );
+
+        assert_eq!(
+            parameter(r#""vector foo" [1 1 1 2 2 2 3 3 3]"#),
+            ok_consuming(Param::new("foo".into(), make_vals(ParamVal::Vector3, &[[1.0; 3], [2.0; 3], [3.0; 3]])))
+        );
+
+        assert_eq!(
+            parameter(r#""vector foo" [1 1 1 2 2 2 3 3 ]"#),
+            Err((Error(("3 3 ]", ErrorKind::Tag))))
+        );
+
+        assert_eq!(
+            parameter(r#""string type" [ "matte" ]"#),
+            ok_consuming(Param::new("type".into(), make_vals(ParamVal::String, &["matte".to_string()])))
+        );
+
+        assert_eq!(
+            parameter(r#""string foo" [1 ]"#),
+            Err((Error(("1 ]", ErrorKind::Tag))))
+        );
+    }
+
+    #[test]
+    fn test_spectrum_params() {
+        assert_eq!(
+            parameter(r#""rgb Kd" [ 1 2 3 ]"#),
+            ok_consuming(Param::new("Kd".into(), make_vals(ParamVal::Spectrum, &[SpectrumVal::Rgb([1.0, 2.0, 3.0])])))
+        );
+
+        assert_eq!(
+            parameter(r#""xyz Kd" [ 1 2 3 ]"#),
+            ok_consuming(Param::new("Kd".into(), make_vals(ParamVal::Spectrum, &[SpectrumVal::Xyz([1.0, 2.0, 3.0])])))
+        );
+
+        assert_eq!(
+            parameter(r#""spectrum Kd" [ 1 2 3 4]"#),
+            ok_consuming(Param::new("Kd".into(), make_vals(ParamVal::Spectrum, &[SpectrumVal::Sampled(vec![[1.0, 2.0], [3.0, 4.0]])])))
+        );
+    }
+
+    #[test]
+    fn test_parameter_list() {
+        let input = r#""string filename" ["out.exr"]
+             "float cropwindow" [ .2 .5 .3 .8 ] "#;
+        let expected = vec![
+            Param::new("filename".to_string(), make_vals(ParamVal::String, &["out.exr".to_string()])),
+            Param::new("cropwindow".to_string(), make_vals(ParamVal::Float, &[0.2, 0.5, 0.3, 0.8])),
+        ];
+        assert_eq!(parameter_list(input), Ok((" ", expected)))
     }
 }
