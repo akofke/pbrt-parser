@@ -6,7 +6,7 @@ use crate::{ws_or_comment, fixed_float_list};
 use nom::branch::alt;
 use std::convert::TryFrom;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TransformStmt {
     Identity,
     Translate(Box<[f32; 3]>),
@@ -45,10 +45,7 @@ fn identity(s: &str) -> IResult<&str, TransformStmt> {
 
 
 
-fn transform_stmt(s: &str) -> IResult<&str, TransformStmt> {
-//    let identity = |s: &str| map(tag("Identity"), |_| TransformStmt::Identity)(s);
-//
-
+pub fn transform_stmt(s: &str) -> IResult<&str, TransformStmt> {
     alt((
         identity,
         tagged_float_list("Translate", TransformStmt::Translate),

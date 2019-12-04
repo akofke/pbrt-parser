@@ -6,9 +6,9 @@ use nom::number::complete::float;
 use nom::sequence::{tuple, terminated, delimited, preceded, separated_pair};
 use nom::bytes::complete::tag;
 use nom::branch::alt;
-use nom::multi::{many0, separated_nonempty_list};
+use nom::multi::{many0, separated_nonempty_list, separated_list};
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub value: Vec<ParamVal>
@@ -30,7 +30,7 @@ enum SpectrumType {
     Rgb, Xyz, Sampled, Blackbody
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum ParamVal {
     Int(i32),
     Float(f32),
@@ -54,7 +54,8 @@ pub enum SpectrumVal {
 }
 
 pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
-    separated_nonempty_list(ws_or_comment, parameter)(s)
+//    separated_nonempty_list(ws_or_comment, parameter)(s)
+    separated_list(ws_or_comment, parameter)(s)
 }
 
 fn parameter(s: &str) -> IResult<&str, Param> {

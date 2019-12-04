@@ -3,19 +3,25 @@ use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{line_ending, multispace0, multispace1, none_of};
 use nom::branch::alt;
 use nom::combinator::{map, map_res};
-use nom::multi::{separated_nonempty_list, many1, many0};
+use nom::multi::{separated_nonempty_list, many1, many0, separated_list};
 use nom::number::complete::float;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
-use nom::sequence::{separated_pair, delimited, terminated};
+use nom::sequence::{separated_pair, delimited, terminated, preceded};
 use std::array::TryFromSliceError;
+use crate::statements::{HeaderStmt, WorldStmt, world_stmt};
+use crate::params::ParamVal;
 
+#[macro_use]
+pub mod macros;
+pub mod parser;
 mod transform;
 mod params;
-mod statements;
+pub mod statements;
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
+
 
 fn quoted_string(s: &str) -> IResult<&str, String> {
     map(
@@ -68,6 +74,10 @@ fn comment(s: &str) -> IResult<&str, &str> {
     take_till(|c| {
         c == '\n' || c == '\r'
     })(s)
+}
+
+pub fn make_vals<T: Clone>(f: impl Fn(T) -> ParamVal, vals: &[T]) -> Vec<ParamVal> {
+    vals.iter().cloned().map(f).collect()
 }
 
 #[cfg(test)]
