@@ -6,6 +6,12 @@ macro_rules! param {
     };
 }
 
+macro_rules! rgb {
+    ($r:expr, $g:expr, $b:expr) => {
+        crate::params::SpectrumVal::Rgb([$r as f32, $g as f32, $b as f32])
+    };
+}
+
 #[macro_export]
 macro_rules! tf {
     ($tf_type:ident($($x:expr),+)) => {

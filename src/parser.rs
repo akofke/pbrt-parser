@@ -15,15 +15,15 @@ pub struct PbrtScene {
 
 pub trait IncludeHandler {
 
-    fn parse_include(&self, path: String) -> Vec<WorldStmt>;
+    fn parse_include(&self, path: String) -> IResult<&str, WorldStmt>;
 }
 
 pub struct NoOpIncludeHandler;
 
 impl IncludeHandler for NoOpIncludeHandler {
 
-    fn parse_include(&self, path: String) -> Vec<WorldStmt> {
-        vec![WorldStmt::Include(path)]
+    fn parse_include(&self, path: String) -> IResult<&str, WorldStmt> {
+        Ok(("", WorldStmt::Include(path)))
     }
 }
 
@@ -51,21 +51,7 @@ fn world_block(include_handler: &impl IncludeHandler) -> impl Fn(&str) -> IResul
     move |s| {
         delimited(
             ws_term(tag("WorldBegin")),
-            fold_many0(
-                terminated(world_stmt, opt(ws_or_comment)),
-                Vec::new(),
-                |mut statements, stmt| {
-                    match stmt {
-                        WorldStmt::Include(path) => {
-                            statements.append(&mut include_handler.parse_include(path));
-                        },
-                        stmt @ _ => {
-                            statements.push(stmt)
-                        }
-                    }
-                    statements
-                }
-            ),
+            many0(terminated(move |s| world_stmt(include_handler, s), opt(ws_or_comment))),
             terminated(tag("WorldEnd"), opt(ws_or_comment))
         )(s)
     }
@@ -95,18 +81,28 @@ mod tests {
         AttributeBegin
             Material "matte" "color Kd" [0 0 0]
             Shape "sphere" "float radius" [3]
+            Include "foo"
         AttributeEnd
         Shape "sphere"
+        Include "foo"
         WorldEnd
         "#;
 
         let header = vec![
             HeaderStmt::Transform(tf!(Rotate(-5, 0, 0, 1))),
-            HeaderStmt::Camera("perspective".into(), vec![param!(fov, Float(39.0))])
+            HeaderStmt::Camera("perspective".into(), vec![param!(fov, Float(39.0))]),
+            HeaderStmt::Integrator("path".into(), vec![]),
         ];
 
+        use WorldStmt::*;
         let world = vec![
-            WorldStmt::AttributeBlock(vec![])
+            AttributeBlock(vec![
+                Material("matte".into(), vec![param!(Kd, Spectrum(rgb!(0, 0, 0)))]),
+                Shape("sphere".into(), vec![param!(radius, Float(3.0))]),
+                Include("foo".into())
+            ]),
+            Shape("sphere".into(), vec![]),
+            Include("foo".into())
         ];
 
         let scene = PbrtScene {header, world};
