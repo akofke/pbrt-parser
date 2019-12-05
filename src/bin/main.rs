@@ -3,11 +3,16 @@ use pbrt_parser::parser::{PbrtParser, PbrtScene};
 use pbrt_parser::statements::{WorldStmt, HeaderStmt};
 use std::mem::size_of;
 use pbrt_parser::{Param, ParamVal, SpectrumVal};
+use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    match PbrtParser::parse_with_includes("data/killeroo-simple.pbrt") {
+    let start = Instant::now();
+    let res = PbrtParser::parse_with_includes("data/hair/curly-hair.pbrt");
+    let elapsed = start.elapsed();
+    eprintln!("Parsed in {} ms", elapsed.as_millis());
+    match res {
         Ok(scene) => {
-            println!("{:#?}", scene);
+//            println!("{:#?}", scene);
             print_stats(&scene);
         },
         Err(e) => println!("{:#?}", e)

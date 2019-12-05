@@ -45,7 +45,7 @@ pub fn header_stmt(s: &str) -> IResult<&str, HeaderStmt> {
         tagged_named_params("Camera", HeaderStmt::Camera),
         tagged_named_params("Sampler", HeaderStmt::Sampler),
         tagged_named_params("Film", HeaderStmt::Film),
-        tagged_named_params("Filter", HeaderStmt::Filter),
+        tagged_named_params("PixelFilter", HeaderStmt::Filter),
         tagged_named_params("Integrator", HeaderStmt::Integrator),
         tagged_named_params("Accelerator", HeaderStmt::Accelerator),
         map(transform_stmt, HeaderStmt::Transform),
@@ -191,6 +191,20 @@ mod tests {
             params: vec![Param::new("filename".into(), make_vals(ParamVal::String, &["image.tga".into()]))]
         };
         assert_eq!(texture_stmt(input), ok_consuming(expected));
+    }
+
+    #[test]
+    fn test_transform_stmt() {
+        let input = r#"Transform [ -0.999887 0.00390257 0.0145262 -0 -0 0.965755 -0.259457 -0 0.0150413 0.259428 0.965645 -0 0.146624 -9.36998 28.765 1]"#;
+        let expected = WorldStmt::Transform(TransformStmt::Transform(Box::new(
+            [
+                -0.999887, 0.00390257, 0.0145262, -0.0,
+                -0.0, 0.965755, -0.259457, -0.0,
+                0.0150413, 0.259428, 0.965645, -0.0,
+                0.146624, -9.36998, 28.765, 1.0
+            ])));
+
+        assert_eq!(world_stmt(input), ok_consuming(expected));
     }
 }
 

@@ -2,7 +2,7 @@ use nom::IResult;
 use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{line_ending, multispace0, multispace1, none_of};
 use nom::branch::alt;
-use nom::combinator::{map, map_res};
+use nom::combinator::{map, map_res, opt};
 use nom::multi::{separated_nonempty_list, many1, many0, separated_list};
 use nom::number::complete::float;
 use std::convert::{TryFrom, TryInto};
@@ -35,6 +35,10 @@ fn quoted_string(s: &str) -> IResult<&str, String> {
 
 fn ws_term<'a, T>(f: impl Fn(&'a str) -> IResult<&'a str, T>) -> impl Fn(&'a str) -> IResult<&'a str, T> {
     terminated(f, ws_or_comment)
+}
+
+fn opt_ws_term<'a, T>(f: impl Fn(&'a str) -> IResult<&'a str, T>) -> impl Fn(&'a str) -> IResult<&'a str, T> {
+    terminated(f, opt(ws_or_comment))
 }
 
 // TODO: fix duplication
