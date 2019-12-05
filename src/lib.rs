@@ -9,8 +9,7 @@ use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
 use nom::sequence::{separated_pair, delimited, terminated, preceded};
 use std::array::TryFromSliceError;
-use crate::statements::{HeaderStmt, WorldStmt, world_stmt};
-use crate::params::ParamVal;
+use crate::statements::world_stmt;
 
 #[macro_use]
 pub mod macros;
@@ -18,6 +17,10 @@ pub mod parser;
 mod transform;
 mod params;
 pub mod statements;
+
+pub use params::{Param, ParamVal, SpectrumVal};
+pub use transform::TransformStmt;
+pub use statements::{HeaderStmt, WorldStmt};
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
