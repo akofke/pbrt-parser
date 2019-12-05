@@ -4,8 +4,47 @@ use nom::sequence::{delimited, preceded, terminated};
 use crate::{ws_term, ws_or_comment};
 use nom::multi::{separated_list, many0, fold_many0};
 use nom::bytes::complete::tag;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use nom::combinator::{opt, all_consuming};
+use nom::error::{ErrorKind, ParseError};
+use std::fmt::Display;
+use nom::lib::std::fmt::{Formatter};
+use nom::Err;
+
+#[derive(Debug)]
+pub enum ParserError {
+    Io(std::io::Error),
+    Parse(nom::Err<(String, ErrorKind)>)
+}
+
+impl From<std::io::Error> for ParserError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<nom::Err<(&str, ErrorKind)>> for ParserError {
+    fn from(e: nom::Err<(&str, ErrorKind)>) -> Self {
+        // TODO: how to prevent storing whole remaining string
+//        Self::Parse(nom::Err::convert(e))
+        let f = match e {
+            Err::Incomplete(n) => Err::Incomplete(n),
+            Err::Error((s, k)) => Err::Error((s.into(), k)),
+            Err::Failure((s, k)) => Err::Failure((s.into(), k)),
+        };
+        Self::Parse(f)
+    }
+}
+
+impl std::fmt::Display for ParserError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for ParserError {
+
+}
 
 #[derive(PartialEq, Debug)]
 pub struct PbrtScene {
@@ -13,48 +52,82 @@ pub struct PbrtScene {
     pub world: Vec<WorldStmt>,
 }
 
-pub trait IncludeHandler {
-
-    fn parse_include(&self, path: String) -> IResult<&str, WorldStmt>;
+/// Resolves include paths relative to a base path, i.e. the path of the
+/// main pbrt file.
+pub struct BasePathIncludeHandler {
+    pub base_path: PathBuf,
 }
 
-pub struct NoOpIncludeHandler;
 
-impl IncludeHandler for NoOpIncludeHandler {
+impl BasePathIncludeHandler {
+    fn parse_include(&self, path: impl AsRef<Path>) -> Result<WorldStmt, ParserError> {
+        use std::io;
 
-    fn parse_include(&self, path: String) -> IResult<&str, WorldStmt> {
-        Ok(("", WorldStmt::Include(path)))
+        let mut incl_file_path = self.base_path.clone();
+        incl_file_path.push(path);
+
+        let contents = std::fs::read_to_string(incl_file_path)?;
+        let (s, _) = opt(ws_or_comment)(&contents)?;
+        let (s, statements) = all_consuming(
+            many0(terminated(world_stmt, opt(ws_or_comment)))
+        )(s)?;
+        Ok(WorldStmt::ResolvedInclude(statements))
     }
 }
 
-pub struct PbrtParser<I: IncludeHandler> {
-    include_handler: I,
-}
+pub struct PbrtParser;
 
-impl PbrtParser<NoOpIncludeHandler> {
-    pub fn new() -> Self {
-        Self { include_handler: NoOpIncludeHandler }
+impl PbrtParser {
+
+    pub fn parse_with_includes(path: impl AsRef<Path>) -> Result<PbrtScene, ParserError> {
+        let base_path = path.as_ref().parent()
+            .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Invalid path"))?
+            .to_path_buf();
+        let include_handler = BasePathIncludeHandler { base_path };
+        let contents = std::fs::read_to_string(path)?;
+        let (_, mut scene) = Self::parse_string(&contents)?;
+        Self::resolve_includes(&include_handler, &mut scene.world)?;
+        Ok(scene)
     }
-}
 
-impl<I: IncludeHandler> PbrtParser<I> {
-    pub fn parse_string<'s>(&self, contents: &'s str) -> IResult<&'s str, PbrtScene> {
+    pub fn parse_string(contents: &str) -> IResult<&str, PbrtScene> {
         let (s, header) = header_block(contents)?;
-        let (s, world) = all_consuming(world_block(&self.include_handler))(s)?;
+        let (s, world) = all_consuming(world_block)(s)?;
 
         let scene = PbrtScene { header, world };
         Ok((s, scene))
     }
+
+    fn resolve_includes(handler: &BasePathIncludeHandler, statements: &mut [WorldStmt]) -> Result<(), ParserError> {
+        use WorldStmt::*;
+        for stmt in statements {
+            match stmt {
+                WorldStmt::Include(path) => {
+                    let mut resolved = handler.parse_include(path)?;
+                    Self::resolve_includes(handler, std::slice::from_mut(&mut resolved))?;
+                    std::mem::replace(stmt, resolved);
+                },
+
+                AttributeBlock(s)
+                | TransformBlock(s)
+                | InstanceBlock(_, s)
+                | ResolvedInclude(s) => {
+                    Self::resolve_includes(handler, s)?;
+                },
+
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
-fn world_block(include_handler: &impl IncludeHandler) -> impl Fn(&str) -> IResult<&str, Vec<WorldStmt>> + '_ {
-    move |s| {
-        delimited(
-            ws_term(tag("WorldBegin")),
-            many0(terminated(move |s| world_stmt(include_handler, s), opt(ws_or_comment))),
-            terminated(tag("WorldEnd"), opt(ws_or_comment))
-        )(s)
-    }
+fn world_block(s: &str) -> IResult<&str, Vec<WorldStmt>> {
+    delimited(
+        ws_term(tag("WorldBegin")),
+        many0(terminated(world_stmt, opt(ws_or_comment))),
+        terminated(tag("WorldEnd"), opt(ws_or_comment))
+    )(s)
 
 }
 
@@ -107,8 +180,6 @@ mod tests {
 
         let scene = PbrtScene {header, world};
 
-        let parser = PbrtParser::new();
-
-        assert_eq!(parser.parse_string(file), ok_consuming(scene));
+        assert_eq!(PbrtParser::parse_string(file), ok_consuming(scene));
     }
 }

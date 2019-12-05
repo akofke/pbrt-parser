@@ -8,7 +8,6 @@ use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::multi::separated_list;
 use crate::statements::WorldStmt::{ObjectInstance, NamedMaterial, ReverseOrientation, Transform};
-use crate::parser::IncludeHandler;
 
 /// Create a parser for the common case of statements in the form of
 ///
@@ -77,11 +76,11 @@ pub enum WorldStmt {
     ResolvedInclude(Vec<WorldStmt>)
 }
 
-pub(crate) fn world_stmt<'s>(i: &impl IncludeHandler, s: &'s str) -> IResult<&'s str, WorldStmt> {
+pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
     alt((
-        move |s| attribute_block(i, s),
-        move |s| transform_block(i, s),
-        move |s| instance_block(i, s),
+        attribute_block,
+        transform_block,
+        instance_block,
 
         value(WorldStmt::ReverseOrientation, tag("ReverseOrientation")),
         map(transform_stmt, WorldStmt::Transform),
@@ -96,35 +95,35 @@ pub(crate) fn world_stmt<'s>(i: &impl IncludeHandler, s: &'s str) -> IResult<&'s
         texture_stmt,
         tagged_named_params("MakeNamedMedium", WorldStmt::MakeNamedMedium),
 
-        map_res(include_stmt, |path| i.parse_include(path).map(|(_, stmt)| stmt)),
+        include_stmt
     ))(s)
 }
 
-fn attribute_block<'s>(i: &impl IncludeHandler, s: &'s str) -> IResult<&'s str, WorldStmt> {
+fn attribute_block(s: &str) -> IResult<&str, WorldStmt> {
     map(
         delimited(
         ws_term(tag("AttributeBegin")),
-        separated_list(ws_or_comment, move |s| world_stmt(i, s)),
+        separated_list(ws_or_comment, world_stmt),
         preceded(ws_or_comment, tag("AttributeEnd"))
         ),
     WorldStmt::AttributeBlock
     )(s)
 }
 
-fn transform_block<'s>(i: &impl IncludeHandler, s: &'s str) -> IResult<&'s str, WorldStmt> {
+fn transform_block(s: &str) -> IResult<&str, WorldStmt> {
     map(
         delimited(
             ws_term(tag("TransformBegin")),
-            separated_list(ws_or_comment, move |s| world_stmt(i, s)),
+            separated_list(ws_or_comment, world_stmt),
             preceded(ws_or_comment, tag("TransformEnd"))
         ),
         WorldStmt::TransformBlock
     )(s)
 }
 
-fn instance_block<'s>(i: &impl IncludeHandler, s: &'s str) -> IResult<&'s str, WorldStmt> {
+fn instance_block(s: &str) -> IResult<&str, WorldStmt> {
     let (s, name) = preceded(ws_term(tag("ObjectBegin")), quoted_string)(s)?;
-    let (s, statements) = separated_list(ws_or_comment, move |s| world_stmt(i, s))(s)?;
+    let (s, statements) = separated_list(ws_or_comment, world_stmt)(s)?;
     preceded(ws_or_comment, tag("ObjectEnd"))(s).map(|(s, _)| (s, WorldStmt::InstanceBlock(name, statements)))
 }
 
@@ -161,8 +160,8 @@ pub fn medium_interface_stmt(s: &str) -> IResult<&str, WorldStmt> {
     )(s)
 }
 
-fn include_stmt(s: &str) -> IResult<&str, String> {
-    preceded(ws_term(tag("Include")), quoted_string)(s)
+fn include_stmt(s: &str) -> IResult<&str, WorldStmt> {
+    map(preceded(ws_term(tag("Include")), quoted_string), WorldStmt::Include)(s)
 }
 
 #[cfg(test)]
