@@ -1,7 +1,7 @@
 use crate::statements::{HeaderStmt, WorldStmt, world_stmt, header_stmt};
 use nom::IResult;
 use nom::sequence::{delimited, preceded, terminated};
-use crate::{ws_term, ws_or_comment};
+use crate::{ws_term, ws_or_comment, single_ws_or_comment};
 use nom::multi::{separated_list, many0, fold_many0};
 use nom::bytes::complete::tag;
 use std::path::{PathBuf, Path};
@@ -29,8 +29,8 @@ impl From<nom::Err<(&str, ErrorKind)>> for ParserError {
 //        Self::Parse(nom::Err::convert(e))
         let f = match e {
             Err::Incomplete(n) => Err::Incomplete(n),
-            Err::Error((s, k)) => Err::Error((s.into(), k)),
-            Err::Failure((s, k)) => Err::Failure((s.into(), k)),
+            Err::Error((s, k)) => Err::Error((s.lines().next().unwrap().to_string(), k)),
+            Err::Failure((s, k)) => Err::Failure((s.lines().next().unwrap().to_string(), k)),
         };
         Self::Parse(f)
     }

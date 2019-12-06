@@ -13,8 +13,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     dbg!(size_of::<SpectrumVal>());
     dbg!(size_of::<Float3>());
     dbg!(size_of::<String>());
+    let path = std::env::args().nth(1).unwrap();
     let start = Instant::now();
-    let res = PbrtParser::parse_with_includes("data/hair/curly-hair.pbrt");
+    let res = PbrtParser::parse_with_includes(path);
     let elapsed = start.elapsed();
     eprintln!("Parsed in {} ms", elapsed.as_millis());
     match res {

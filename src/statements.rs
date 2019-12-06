@@ -8,6 +8,7 @@ use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::multi::separated_list;
 use crate::statements::WorldStmt::{ObjectInstance, NamedMaterial, ReverseOrientation, Transform};
+use nom::error::context;
 
 /// Create a parser for the common case of statements in the form of
 ///
@@ -169,6 +170,7 @@ mod tests {
     use super::*;
     use crate::test_helpers::{make_vals, ok_consuming};
     use crate::params::ParamVal;
+    use crate::WorldStmt::*;
 
     #[test]
     fn test_header_stmt() {
@@ -205,6 +207,44 @@ mod tests {
             ])));
 
         assert_eq!(world_stmt(input), ok_consuming(expected));
+    }
+
+    #[test]
+    fn test_attribute_block() {
+        let input = r#"
+        AttributeBegin
+        Shape "sphere"
+        AttributeEnd
+        "#;
+
+        let expected = AttributeBlock(vec![Shape("sphere".to_string(), vec![])]);
+        assert_eq!(world_stmt(input), Ok(("", expected)));
+    }
+
+    #[test]
+    fn test_nested_block() {
+        let input = r#"AttributeBegin
+            ObjectBegin "Buddha_Mesh25251"
+
+            AttributeBegin
+                NamedMaterial "Buda"
+                Shape "plymesh" "string filename" "geometry/buddha.ply"
+            AttributeEnd
+            ObjectEnd
+        AttributeEnd
+        "#;
+
+        let expected = AttributeBlock(vec![
+            InstanceBlock("Buddha_Mesh25251".to_string(), vec![
+                AttributeBlock(vec![
+                    NamedMaterial("Buda".to_string()),
+                    Shape("plymesh".to_string(), vec![param!(filename, String("geometry/buddha.ply".to_string()))])
+                ])
+            ])
+        ]);
+
+        assert_eq!(world_stmt(input), Ok(("", expected)));
+
     }
 }
 

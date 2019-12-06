@@ -9,6 +9,14 @@ edition = "2018"
 [dependencies]
 nom = "5.0.1"
 
+[dev-dependencies]
+criterion = "0.3.0"
+rand = "0.7.2"
+
+[[bench]]
+harness = false
+name = "bench_parse"
+
 [profile.release]
 #lto = true
 codegen-units = 1

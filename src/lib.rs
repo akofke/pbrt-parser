@@ -21,6 +21,7 @@ pub mod statements;
 pub use params::{Param, ParamVal, SpectrumVal};
 pub use transform::TransformStmt;
 pub use statements::{HeaderStmt, WorldStmt};
+pub use parser::{PbrtParser, PbrtScene, ParserError};
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
