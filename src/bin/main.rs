@@ -2,10 +2,17 @@ use std::error::Error;
 use pbrt_parser::parser::{PbrtParser, PbrtScene};
 use pbrt_parser::statements::{WorldStmt, HeaderStmt};
 use std::mem::size_of;
-use pbrt_parser::{Param, ParamVal, SpectrumVal};
+use pbrt_parser::{Param, ParamVal, SpectrumVal, Float3};
 use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    dbg!(size_of::<WorldStmt>());
+    dbg!(size_of::<HeaderStmt>());
+    dbg!(size_of::<Param>());
+    dbg!(size_of::<ParamVal>());
+    dbg!(size_of::<SpectrumVal>());
+    dbg!(size_of::<Float3>());
+    dbg!(size_of::<String>());
     let start = Instant::now();
     let res = PbrtParser::parse_with_includes("data/hair/curly-hair.pbrt");
     let elapsed = start.elapsed();
@@ -21,11 +28,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn print_stats(scene: &PbrtScene) {
-    dbg!(size_of::<WorldStmt>());
-    dbg!(size_of::<HeaderStmt>());
-    dbg!(size_of::<Param>());
-    dbg!(size_of::<ParamVal>());
-    dbg!(size_of::<SpectrumVal>());
 }
 
 trait MemSize {

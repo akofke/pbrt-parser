@@ -10,6 +10,6 @@ edition = "2018"
 nom = "5.0.1"
 
 [profile.release]
-lto = true
+#lto = true
 codegen-units = 1
 debug = true
