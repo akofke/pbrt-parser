@@ -3,10 +3,10 @@ use crate::params::{Param, parameter_list};
 use nom::IResult;
 use nom::sequence::{tuple, delimited, preceded, separated_pair};
 use nom::combinator::{map, value, opt, map_res};
-use crate::{ws_term, quoted_string, ws_or_comment};
+use crate::{ws_term, quoted_string, ws_or_comment, opt_ws_term, dbg_dmp};
 use nom::bytes::complete::tag;
 use nom::branch::alt;
-use nom::multi::separated_list;
+use nom::multi::{separated_list, many0};
 use crate::statements::WorldStmt::{ObjectInstance, NamedMaterial, ReverseOrientation, Transform};
 use nom::error::context;
 
@@ -20,11 +20,11 @@ fn tagged_named_params<'a, T, F>(tag_str: &'static str, f: F) -> impl Fn(&'a str
 {
     map(
         tuple((
-            ws_term(tag(tag_str)),
-            ws_term(quoted_string),
-            parameter_list
+            opt_ws_term(tag(tag_str)),
+            opt_ws_term(quoted_string),
+            opt(parameter_list)
         )),
-        move |(_, name, params)| f(name, params)
+        move |(_, name, params)| f(name, params.unwrap_or_else(|| Vec::with_capacity(0)))
     )
 }
 
@@ -103,9 +103,10 @@ pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
 fn attribute_block(s: &str) -> IResult<&str, WorldStmt> {
     map(
         delimited(
-        ws_term(tag("AttributeBegin")),
-        separated_list(ws_or_comment, world_stmt),
-        preceded(ws_or_comment, tag("AttributeEnd"))
+        opt_ws_term(tag("AttributeBegin")),
+        many0(opt_ws_term(world_stmt)),
+//        separated_list(ws_or_comment, world_stmt),
+        tag("AttributeEnd")
         ),
     WorldStmt::AttributeBlock
     )(s)
@@ -114,18 +115,18 @@ fn attribute_block(s: &str) -> IResult<&str, WorldStmt> {
 fn transform_block(s: &str) -> IResult<&str, WorldStmt> {
     map(
         delimited(
-            ws_term(tag("TransformBegin")),
-            separated_list(ws_or_comment, world_stmt),
-            preceded(ws_or_comment, tag("TransformEnd"))
+            opt_ws_term(tag("TransformBegin")),
+            many0(opt_ws_term(world_stmt)),
+            tag("TransformEnd")
         ),
         WorldStmt::TransformBlock
     )(s)
 }
 
 fn instance_block(s: &str) -> IResult<&str, WorldStmt> {
-    let (s, name) = preceded(ws_term(tag("ObjectBegin")), quoted_string)(s)?;
-    let (s, statements) = separated_list(ws_or_comment, world_stmt)(s)?;
-    preceded(ws_or_comment, tag("ObjectEnd"))(s).map(|(s, _)| (s, WorldStmt::InstanceBlock(name, statements)))
+    let (s, name) = preceded(opt_ws_term(tag("ObjectBegin")), opt_ws_term(quoted_string))(s)?;
+    let (s, statements) = many0(opt_ws_term(world_stmt))(s)?;
+    tag("ObjectEnd")(s).map(|(s, _)| (s, WorldStmt::InstanceBlock(name, statements)))
 }
 
 // `Texture "name" "type" "class" params...`
@@ -210,14 +211,47 @@ mod tests {
     }
 
     #[test]
+    fn test_no_params() {
+        let input = r#"Shape "sphere""#;
+        let expected = WorldStmt::Shape("sphere".to_string(), vec![]);
+
+        assert_eq!(world_stmt(input), ok_consuming(expected));
+    }
+
+    #[test]
+    fn test_no_spaces() {
+        let input = r#"AttributeBeginShape"sphere"AttributeEnd"#;
+        let expected = AttributeBlock(vec![Shape("sphere".to_string(), vec![])]);
+        assert_eq!(world_stmt(input), Ok(("", expected)));
+    }
+
+    #[test]
     fn test_attribute_block() {
-        let input = r#"
-        AttributeBegin
+        let input = r#"AttributeBegin
         Shape "sphere"
-        AttributeEnd
-        "#;
+        AttributeEnd"#;
 
         let expected = AttributeBlock(vec![Shape("sphere".to_string(), vec![])]);
+        assert_eq!(world_stmt(input), Ok(("", expected)));
+    }
+
+    #[test]
+    fn test_transform_block() {
+        let input = r#"TransformBegin
+        Shape "sphere"
+        TransformEnd"#;
+
+        let expected = TransformBlock(vec![Shape("sphere".to_string(), vec![])]);
+        assert_eq!(world_stmt(input), Ok(("", expected)));
+    }
+
+    #[test]
+    fn test_instance_block() {
+        let input = r#"ObjectBegin "foo"
+        Shape "sphere"
+        ObjectEnd"#;
+
+        let expected = InstanceBlock("foo".to_string(), vec![Shape("sphere".to_string(), vec![])]);
         assert_eq!(world_stmt(input), Ok(("", expected)));
     }
 
@@ -231,8 +265,7 @@ mod tests {
                 Shape "plymesh" "string filename" "geometry/buddha.ply"
             AttributeEnd
             ObjectEnd
-        AttributeEnd
-        "#;
+        AttributeEnd "#;
 
         let expected = AttributeBlock(vec![
             InstanceBlock("Buddha_Mesh25251".to_string(), vec![
@@ -243,7 +276,7 @@ mod tests {
             ])
         ]);
 
-        assert_eq!(world_stmt(input), Ok(("", expected)));
+        assert_eq!(world_stmt(input), Ok((" ", expected)));
 
     }
 }

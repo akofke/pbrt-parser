@@ -22,6 +22,7 @@ pub use params::{Param, ParamVal, SpectrumVal};
 pub use transform::TransformStmt;
 pub use statements::{HeaderStmt, WorldStmt};
 pub use parser::{PbrtParser, PbrtScene, ParserError};
+use std::fmt::{Debug, Display};
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
@@ -36,6 +37,10 @@ fn quoted_string(s: &str) -> IResult<&str, String> {
 
 fn ws_term<'a, T>(f: impl Fn(&'a str) -> IResult<&'a str, T>) -> impl Fn(&'a str) -> IResult<&'a str, T> {
     terminated(f, ws_or_comment)
+}
+
+fn opt_ws(s: &str) -> IResult<&str, ()> {
+    opt(ws_or_comment)(s).map(|(s, _)| (s, ()))
 }
 
 fn opt_ws_term<'a, T>(f: impl Fn(&'a str) -> IResult<&'a str, T>) -> impl Fn(&'a str) -> IResult<&'a str, T> {
@@ -86,6 +91,20 @@ fn comment(s: &str) -> IResult<&str, &str> {
 
 pub fn make_vals<T: Clone>(f: impl Fn(T) -> ParamVal, vals: &[T]) -> Vec<ParamVal> {
     vals.iter().cloned().map(f).collect()
+}
+
+pub fn dbg_dmp<'a, I: Display + Clone, F, O, E: Debug>(f: F, context: I) -> impl Fn(I) -> IResult<I, O, E>
+    where F: Fn(I) -> IResult<I, O, E> {
+    move |i: I| {
+        let input = i.clone();
+        match f(i) {
+            Err(e) => {
+                println!("{}: Error({:?}) at:\n{}", context, e, input);
+                Err(e)
+            },
+            a => a,
+        }
+    }
 }
 
 #[cfg(test)]

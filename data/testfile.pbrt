@@ -1,0 +1,11 @@
+
+WorldBegin
+
+AttributeBegin
+ObjectBegin "foo"
+Shape "sphere"
+ObjectEnd
+AttributeEnd
+
+WorldEnd
+# whitespace
