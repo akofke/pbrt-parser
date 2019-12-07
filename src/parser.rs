@@ -66,7 +66,11 @@ impl BasePathIncludeHandler {
         let mut incl_file_path = self.base_path.clone();
         incl_file_path.push(path);
 
-        let contents = std::fs::read_to_string(incl_file_path)?;
+        let start = std::time::Instant::now();
+        let contents = std::fs::read_to_string(&incl_file_path)?;
+        let time = start.elapsed();
+        // TODO
+        eprintln!("Included {:?} in {} ms, contents size {} MiB", incl_file_path.as_os_str(), time.as_millis(), contents.len() as f64 / 1024.0 / 1024.0);
         let (s, _) = opt(ws_or_comment)(&contents)?;
         let (s, statements) = all_consuming(
             many0(terminated(world_stmt, opt(ws_or_comment)))
@@ -84,7 +88,9 @@ impl PbrtParser {
             .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Invalid path"))?
             .to_path_buf();
         let include_handler = BasePathIncludeHandler { base_path };
-        let contents = std::fs::read_to_string(path)?;
+        let contents = std::fs::read_to_string(&path)?;
+        // TODO
+        eprintln!("Main file {:?}, contents size {} MiB", path.as_ref().as_os_str(), contents.len() as f64 / 1024.0 / 1024.0);
         let (_, mut scene) = Self::parse_string(&contents)?;
         Self::resolve_includes(&include_handler, &mut scene.world)?;
         Ok(scene)
