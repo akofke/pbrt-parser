@@ -176,7 +176,7 @@ mod tests {
         use WorldStmt::*;
         let world = vec![
             AttributeBlock(vec![
-                Material("matte".into(), vec![param!(Kd, Spectrum(rgb!(0, 0, 0)))]),
+                Material("matte".into(), vec![param!(Kd, SpectrumRgb([0.0, 0.0, 0.0]))]),
                 Shape("sphere".into(), vec![param!(radius, Float(3.0))]),
                 Include("foo".into())
             ]),

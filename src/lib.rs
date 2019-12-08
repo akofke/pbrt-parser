@@ -18,7 +18,7 @@ mod transform;
 mod params;
 pub mod statements;
 
-pub use params::{Param, ParamVal, SpectrumVal};
+pub use params::{Param, ParamVal};
 pub use transform::TransformStmt;
 pub use statements::{HeaderStmt, WorldStmt};
 pub use parser::{PbrtParser, PbrtScene, ParserError};

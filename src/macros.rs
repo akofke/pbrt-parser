@@ -2,13 +2,7 @@
 #[macro_export]
 macro_rules! param {
     ($param_name:ident, $param_type:ident($($val:expr),+)) => {
-        crate::params::Param::new(stringify!($param_name).to_string(), crate::make_vals(crate::params::ParamVal::$param_type, &[$($val),+]))
-    };
-}
-
-macro_rules! rgb {
-    ($r:expr, $g:expr, $b:expr) => {
-        crate::params::SpectrumVal::Rgb([$r as f32, $g as f32, $b as f32])
+        crate::params::Param::new(stringify!($param_name).to_string(), crate::params::ParamVal::$param_type(vec![$($val),+]))
     };
 }
 
@@ -28,7 +22,7 @@ mod tests {
     #[test]
     fn test_param() {
         let param = param!(foo, Float(1.0, 2.0, 3.0));
-        assert_eq!(param, Param::new("foo".to_string(), make_vals(ParamVal::Float, &[1.0, 2.0, 3.0])))
+        assert_eq!(param, Param::new("foo".to_string(), ParamVal::Float(vec![1.0, 2.0, 3.0])));
     }
 }
 

@@ -178,7 +178,7 @@ mod tests {
         let input = r#"Camera "perspective" "float fov" [90]"#;
         let expected = HeaderStmt::Camera(
             "perspective".to_string(),
-            vec![Param::new("fov".into(), make_vals(ParamVal::Float, &[90.0]))]
+            vec![param!(fov, Float(90.0))]
         );
         assert_eq!(header_stmt(input), ok_consuming(expected))
     }
@@ -191,7 +191,7 @@ mod tests {
 
             ty: "spectrum".into(),
             class: "imagemap".into(),
-            params: vec![Param::new("filename".into(), make_vals(ParamVal::String, &["image.tga".into()]))]
+            params: vec![param!(filename, String("image.tga".to_string()))]
         };
         assert_eq!(texture_stmt(input), ok_consuming(expected));
     }

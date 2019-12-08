@@ -2,7 +2,7 @@ use std::error::Error;
 use pbrt_parser::parser::{PbrtParser, PbrtScene};
 use pbrt_parser::statements::{WorldStmt, HeaderStmt};
 use std::mem::{size_of, size_of_val};
-use pbrt_parser::{Param, ParamVal, SpectrumVal, Float3, TransformStmt, Float2};
+use pbrt_parser::{Param, ParamVal, Float3, TransformStmt, Float2};
 use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -10,9 +10,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     dbg!(size_of::<HeaderStmt>());
     dbg!(size_of::<Param>());
     dbg!(size_of::<ParamVal>());
-    dbg!(size_of::<SpectrumVal>());
     dbg!(size_of::<Float3>());
     dbg!(size_of::<String>());
+    dbg!(size_of::<Vec<f32>>());
     let path = std::env::args().nth(1).unwrap();
     let start = Instant::now();
     let res = PbrtParser::parse_with_includes(path);
@@ -85,30 +85,28 @@ fn tf_size(tf: &TransformStmt) -> usize {
     }
 }
 
+fn vec_size<T: Sized>(v: &Vec<T>) -> usize {
+    v.capacity() * size_of::<T>()
+}
+
 fn params_size(params: &[Param]) -> usize {
     params.iter().map(|p| {
-        size_of::<Param>() + p.name.len() + p.value.iter().map(|pv| {
-            size_of::<ParamVal>() + match pv {
-                ParamVal::Int(i) => 0,
-                ParamVal::Float(_) => 0,
-                ParamVal::Point2(_) => 0,
-                ParamVal::Point3(_) => 0,
-                ParamVal::Vector2(_) => 0,
-                ParamVal::Vector3(_) => 0,
-                ParamVal::Normal3(_) => 0,
-                ParamVal::Spectrum(sv) => {
-                    match sv {
-                        SpectrumVal::Rgb(_) => 0,
-                        SpectrumVal::Xyz(_) => 0,
-                        SpectrumVal::Sampled(samples) => samples.len() * size_of::<Float2>(),
-                        SpectrumVal::Blackbody(_) => 0,
-                    }
-                },
-                ParamVal::Bool(_) => 0,
-                ParamVal::String(s) => s.len(),
-                ParamVal::Texture(s) => s.len(),
-            }
-        }).sum::<usize>()
+        size_of::<Param>() + p.name.len() + match &p.value {
+            ParamVal::Int(v) => vec_size(v),
+            ParamVal::Float(v) => vec_size(v),
+            ParamVal::Point2(v) => vec_size(v),
+            ParamVal::Point3(v) => vec_size(v),
+            ParamVal::Vector2(v) => vec_size(v),
+            ParamVal::Vector3(v) => vec_size(v),
+            ParamVal::Normal3(v) => vec_size(v),
+            ParamVal::Bool(v) => vec_size(v),
+            ParamVal::String(s) => s.len(),
+            ParamVal::Texture(s) => s.len(),
+            ParamVal::SpectrumRgb(v) => vec_size(v),
+            ParamVal::SpectrumXyz(v) => vec_size(v),
+            ParamVal::SpectrumSampled(v) => vec_size(v),
+            ParamVal::SpectrumBlackbody(v) => vec_size(v),
+        }
     }).sum()
 }
 
