@@ -5,6 +5,11 @@ use criterion::{Criterion, Throughput, BenchmarkId, criterion_group, criterion_m
 use pbrt_parser::parser::PbrtParser;
 use std::fmt::Write;
 use std::time::Duration;
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::combinator::value;
+use nom::IResult;
 
 fn gen_random_input(n_statements: usize) -> String {
     let mut s = r#"WorldBegin"#.to_string();
@@ -83,5 +88,47 @@ pub fn bench_instances(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_single_large_mesh, bench_curves, bench_instances);
+pub fn bench_match_kw(c: &mut Criterion) {
+    let patterns = &["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+    let matcher = AhoCorasickBuilder::new()
+        .anchored(true)
+        .dfa(true)
+        .auto_configure(patterns)
+        .build(patterns);
+
+
+    let input = "five";
+
+    let mut group = c.benchmark_group("match kw");
+    group.throughput(Throughput::Bytes(input.len() as u64));
+
+    group.bench_with_input("nom", &input, |b, &input| {
+        b.iter(|| nom_parser(input).unwrap());
+    });
+
+    group.bench_with_input("aho", &input, |b, &input| {
+        b.iter(|| matcher.find(input).unwrap().pattern());
+    });
+
+}
+
+pub fn bench_parse_ws(c: &mut Criterion) {
+
+}
+
+fn nom_parser(s: &str) -> IResult<&str, usize> {
+    alt((
+        value(0, tag("zero")),
+        value(1, tag("one")),
+        value(2, tag("two")),
+        value(3, tag("three")),
+        value(4, tag("four")),
+        value(5, tag("five")),
+        value(6, tag("six")),
+        value(7, tag("seven")),
+        value(8, tag("eight")),
+    ))(s)
+}
+
+criterion_group!(benches, bench_single_large_mesh, bench_curves, bench_instances, bench_match_kw);
 criterion_main!(benches);
