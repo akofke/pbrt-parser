@@ -59,6 +59,13 @@ pub enum WorldStmt {
     TransformBlock(Vec<WorldStmt>),
     InstanceBlock(String, Vec<WorldStmt>), // Should this only be shape statements?
 
+//    AttributeBegin,
+//    AttributeEnd,
+//    TransformBegin,
+//    TransformEnd,
+//    ObjectBegin(String),
+//    ObjectEnd,
+
     ReverseOrientation,
     Transform(TransformStmt),
 
@@ -165,6 +172,10 @@ pub fn medium_interface_stmt(s: &str) -> IResult<&str, WorldStmt> {
 fn include_stmt(s: &str) -> IResult<&str, WorldStmt> {
     map(preceded(ws_term(tag("Include")), quoted_string), WorldStmt::Include)(s)
 }
+
+//fn object_begin_stmt(s: &str) -> IResult<&str, WorldStmt> {
+//    map(preceded(ws_term(tag("ObjectBegin")), quoted_string), WorldStmt::ObjectBegin)(s)
+//}
 
 #[cfg(test)]
 mod tests {

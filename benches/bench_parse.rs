@@ -10,6 +10,7 @@ use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::combinator::value;
 use nom::IResult;
+use nom::multi::many1;
 
 fn gen_random_input(n_statements: usize) -> String {
     let mut s = r#"WorldBegin"#.to_string();
@@ -113,7 +114,51 @@ pub fn bench_match_kw(c: &mut Criterion) {
 }
 
 pub fn bench_parse_ws(c: &mut Criterion) {
+    fn eat_ws_nom(s: &[u8]) -> IResult<&[u8], ()> {
+        nom::character::complete::multispace1(s).map(|(s, _)| (s, ()))
+    }
+    let input: &[u8] = b"                     \n\n \t\t    v";
+    assert_eq!(eat_ws1(input), b"v");
+    assert_eq!(eat_ws2(input), b"v");
+    assert_eq!(eat_ws_nom(input).unwrap().0, b"v");
 
+    let mut group = c.benchmark_group("eat ws");
+    group.throughput(Throughput::Bytes(input.len() as u64));
+
+    group.bench_with_input("ws1", &input, |b, &input| {
+        b.iter(|| eat_ws1(input));
+    });
+
+    group.bench_with_input("ws2", &input, |b, &input| {
+        b.iter(|| eat_ws2(input));
+    });
+
+    group.bench_with_input("nom", &input, |b, &input| {
+        b.iter(|| eat_ws_nom(input));
+    });
+
+}
+
+
+fn eat_ws1(s: &[u8]) -> &[u8] {
+    let i = s.iter().position(|&b| !(b==b' ' || b == b'\t' || b == b'\n' || b == b'\r'));
+    match i {
+        Some(i) => &s[i..],
+        None => s
+    }
+}
+
+pub fn eat_ws2(s: &[u8]) -> &[u8] {
+    let mut i = 0;
+    while i < s.len() {
+        let &b = unsafe { s.get_unchecked(i) };
+        if b == b' ' || b == b'\n' || b == b'\t' || b == b'\r' {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    &s[i..]
 }
 
 fn nom_parser(s: &str) -> IResult<&str, usize> {
@@ -130,5 +175,5 @@ fn nom_parser(s: &str) -> IResult<&str, usize> {
     ))(s)
 }
 
-criterion_group!(benches, bench_single_large_mesh, bench_curves, bench_instances, bench_match_kw);
+criterion_group!(benches, bench_single_large_mesh, bench_curves, bench_instances, bench_match_kw, bench_parse_ws);
 criterion_main!(benches);
