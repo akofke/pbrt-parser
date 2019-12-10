@@ -7,5 +7,7 @@ Shape "sphere"
 ObjectEnd
 AttributeEnd
 
+Include "testinclude.pbrt"
+
 WorldEnd
 # whitespace

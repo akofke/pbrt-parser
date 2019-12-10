@@ -10,6 +10,7 @@ use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::combinator::value;
 use nom::IResult;
+use once_cell::sync::{Lazy, OnceCell};
 use nom::multi::many1;
 
 fn gen_random_input(n_statements: usize) -> String {
@@ -49,7 +50,7 @@ pub fn bench_single_large_mesh(c: &mut Criterion) {
     let mut group = c.benchmark_group("large mesh");
     group.throughput(Throughput::Bytes(contents.as_bytes().len() as u64));
     group.bench_with_input(BenchmarkId::from_parameter(size), &contents, |b, contents| {
-        b.iter_with_large_drop(|| PbrtParser::parse_string(contents).unwrap());
+        b.iter_with_large_drop(|| PbrtParser::parse_string_no_includes(contents).unwrap());
     });
 }
 
@@ -65,7 +66,7 @@ pub fn bench_curves(c: &mut Criterion) {
         let contents = format!("WorldBegin\n{}\nWorldEnd", curve.repeat(size));
         group.throughput(Throughput::Bytes(contents.as_bytes().len() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &contents, |b, contents| {
-            b.iter_with_large_drop(|| PbrtParser::parse_string(contents).unwrap());
+            b.iter_with_large_drop(|| PbrtParser::parse_string_no_includes(contents).unwrap());
         });
     }
 }
@@ -84,7 +85,7 @@ pub fn bench_instances(c: &mut Criterion) {
         let contents = format!("WorldBegin\n{}\nWorldEnd", instance.repeat(size));
         group.throughput(Throughput::Bytes(contents.as_bytes().len() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &contents, |b, contents| {
-            b.iter_with_large_drop(|| PbrtParser::parse_string(contents).unwrap());
+            b.iter_with_large_drop(|| PbrtParser::parse_string_no_includes(contents).unwrap());
         });
     }
 }
@@ -96,6 +97,18 @@ pub fn bench_match_kw(c: &mut Criterion) {
         .dfa(true)
         .auto_configure(patterns)
         .build(patterns);
+
+    fn ac() -> &'static AhoCorasick {
+        static AC: OnceCell<AhoCorasick> = OnceCell::new();
+        AC.get_or_init(|| {
+            let patterns = &["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+            AhoCorasickBuilder::new()
+                .anchored(true)
+                .dfa(true)
+                .auto_configure(patterns)
+                .build(patterns)
+        })
+    }
 
 
     let input = "five";
@@ -109,6 +122,10 @@ pub fn bench_match_kw(c: &mut Criterion) {
 
     group.bench_with_input("aho", &input, |b, &input| {
         b.iter(|| matcher.find(input).unwrap().pattern());
+    });
+
+    group.bench_with_input("aho_global", &input, |b, &input| {
+        b.iter(|| ac().find(input).unwrap().pattern());
     });
 
 }

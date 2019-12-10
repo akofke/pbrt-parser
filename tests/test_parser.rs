@@ -5,11 +5,12 @@ fn parse_file() {
     let header = vec![];
 
     let world = vec![
-        Ws::AttributeBlock(vec![
-            Ws::InstanceBlock("foo".to_string(), vec![
-                Ws::Shape("sphere".to_string(), vec![])
-            ])
-        ])
+        Ws::AttributeBegin,
+        Ws::ObjectBegin("foo".to_string()),
+        Ws::Shape("sphere".to_string(), vec![]),
+        Ws::ObjectEnd,
+        Ws::AttributeEnd,
+        Ws::ObjectInstance("foo".to_string()),
     ];
     let expected = PbrtScene {header, world};
 

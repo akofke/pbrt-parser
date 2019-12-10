@@ -37,15 +37,6 @@ fn print_stats(scene: &PbrtScene) {
 fn world_size(w: &[WorldStmt]) -> usize {
     w.iter().map(|s| {
         size_of::<WorldStmt>() + match s {
-            WorldStmt::AttributeBlock(v) => {
-                world_size(v)
-            },
-            WorldStmt::TransformBlock(v) => {
-                world_size(v)
-            },
-            WorldStmt::InstanceBlock(s, v) => {
-                s.len() + world_size(v)
-            },
             WorldStmt::ReverseOrientation => 0,
             WorldStmt::Transform(tf) => {
                 tf_size(tf)
@@ -66,6 +57,12 @@ fn world_size(w: &[WorldStmt]) -> usize {
             WorldStmt::MediumInterface(s, s2) => s.len() + s2.len(),
             WorldStmt::Include(s) => s.len(),
             WorldStmt::ResolvedInclude(v) => world_size(v),
+            WorldStmt::AttributeBegin => 0,
+            WorldStmt::AttributeEnd => 0,
+            WorldStmt::TransformBegin => 0,
+            WorldStmt::TransformEnd => 0,
+            WorldStmt::ObjectBegin(s) => s.len(),
+            WorldStmt::ObjectEnd => 0
         }
 
     }).sum()
