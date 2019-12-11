@@ -72,12 +72,31 @@ pub enum WorldStmt {
     Material(String, Vec<Param>),
     MakeNamedMaterial(String, Vec<Param>),
     NamedMaterial(String),
-    Texture {name: String, ty: String, class: String, params: Vec<Param>},
+    Texture(Box<TextureStmt>),
     MakeNamedMedium(String, Vec<Param>),
     MediumInterface(String, String),
 
     Include(String),
     ResolvedInclude(Vec<WorldStmt>)
+}
+
+impl WorldStmt {
+    pub fn texture(name: String, ty: String, class: String, params: Vec<Param>) -> Self {
+        WorldStmt::Texture(Box::new(TextureStmt{
+            name,
+            ty,
+            class,
+            params
+        }))
+    }
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct TextureStmt {
+    pub name: String,
+    pub ty: String,
+    pub class: String,
+    pub params: Vec<Param>,
 }
 
 pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
@@ -115,7 +134,9 @@ fn texture_stmt(s: &str) -> IResult<&str, WorldStmt> {
         ws_term(quoted_string),
         parameter_list
     ));
-    map(parser, |(_, name, ty, class, params)| WorldStmt::Texture {name, ty, class, params})(s)
+    map(parser, |(_, name, ty, class, params)| {
+        WorldStmt::texture(name, ty, class, params)
+    })(s)
 }
 
 pub fn object_instance_stmt(s: &str) -> IResult<&str, WorldStmt> {
@@ -167,13 +188,13 @@ mod tests {
     #[test]
     fn test_texture_stmt() {
         let input = r#"Texture "mydiffuse" "spectrum" "imagemap" "string filename" "image.tga""#;
-        let expected = WorldStmt::Texture {
+        let expected = WorldStmt::Texture(Box::new(TextureStmt {
             name: "mydiffuse".into(),
 
             ty: "spectrum".into(),
             class: "imagemap".into(),
             params: vec![param!(filename, String("image.tga".to_string()))]
-        };
+        }));
         assert_eq!(texture_stmt(input), ok_consuming(expected));
     }
 

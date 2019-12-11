@@ -1,6 +1,6 @@
 use std::error::Error;
 use pbrt_parser::parser::{PbrtParser, PbrtScene};
-use pbrt_parser::statements::{WorldStmt, HeaderStmt};
+use pbrt_parser::statements::{WorldStmt, HeaderStmt, TextureStmt};
 use std::mem::{size_of, size_of_val};
 use pbrt_parser::{Param, ParamVal, Float3, TransformStmt, Float2};
 use std::time::Instant;
@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn print_stats(scene: &PbrtScene) {
     let size = world_size(&scene.world);
     let mb = size as f64 / (1024.0 * 1024.0);
+    eprintln!("Total world statements: {}", scene.world.len());
     eprintln!("Scene memory usage: {} MiB", mb);
 }
 
@@ -50,8 +51,8 @@ fn world_size(w: &[WorldStmt]) -> usize {
             WorldStmt::Material(s, p) => s.len() + params_size(p),
             WorldStmt::MakeNamedMaterial(s, p) => s.len() + params_size(p),
             WorldStmt::NamedMaterial(s) => s.len(),
-            WorldStmt::Texture { name, ty, class, params } => {
-                name.len() + ty.len() + class.len() + params_size(params)
+            WorldStmt::Texture(b) => {
+                b.name.len() + b.ty.len() + b.class.len() + params_size(&b.params)
             },
             WorldStmt::MakeNamedMedium(s, p) => s.len() + params_size(p),
             WorldStmt::MediumInterface(s, s2) => s.len() + s2.len(),
