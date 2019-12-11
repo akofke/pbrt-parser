@@ -1,17 +1,17 @@
-use crate::{Float2, Float3, ws_or_comment, opt_ws, opt_ws_term, quoted_string};
-use nom::IResult;
-use nom::character::complete::{digit1, anychar, none_of, space1, alphanumeric1};
-use nom::combinator::{map_res, opt, map, value, flat_map, verify, cut};
-use nom::number::complete::float;
-use nom::sequence::{tuple, terminated, delimited, preceded, separated_pair};
-use nom::bytes::complete::tag;
-use nom::branch::alt;
-use nom::multi::{many0, separated_nonempty_list, separated_list};
-use once_cell::sync::Lazy;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::character::complete::{alphanumeric1, digit1};
+use nom::combinator::{cut, map, map_res, opt};
 use nom::Err::Error;
 use nom::error::ErrorKind;
+use nom::IResult;
+use nom::multi::separated_list;
+use nom::number::complete::float;
+use nom::sequence::{delimited, preceded, terminated, tuple};
+use once_cell::sync::Lazy;
 
+use crate::{Float2, Float3, opt_ws, opt_ws_term, quoted_string, ws_or_comment};
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Param {
@@ -21,7 +21,7 @@ pub struct Param {
 
 impl Param {
     pub fn new(name: String, value: ParamVal) -> Self {
-        Self {name, value}
+        Self { name, value }
     }
 }
 
@@ -45,30 +45,23 @@ pub enum ParamVal {
 }
 
 pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
-//    separated_nonempty_list(ws_or_comment, parameter)(s)
     separated_list(ws_or_comment, parameter)(s)
 }
-
 
 const PARAM_KW: [&'static str; 18] = [
     "integer",
     "float",
     "point2",
     "vector2",
-
     "point3",
     "point",
-
     "vector3",
     "vector",
-
     "normal3",
     "normal",
-
     "bool",
     "string",
     "texture",
-
     "rgb",
     "color",
     "xyz",
@@ -117,13 +110,18 @@ fn parameter(s: &str) -> IResult<&str, Param> {
 
     let s = if found_bracket {
         cut(preceded(opt_ws, tag("]")))(s)?.0
-    } else { s };
+    } else {
+        s
+    };
 
     let param = Param::new(name, val);
     Ok((s, param))
 }
 
-fn val_list<'a, T>(val: impl Fn(&'a str) -> IResult<&'a str, T>, f: impl Fn(Vec<T>) -> ParamVal) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal> {
+fn val_list<'a, T>(
+    val: impl Fn(&'a str) -> IResult<&'a str, T>,
+    f: impl Fn(Vec<T>) -> ParamVal,
+) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal> {
     cut(map(separated_list(ws_or_comment, val), f))
 }
 
@@ -134,7 +132,7 @@ fn integer(s: &str) -> IResult<&str, i32> {
 fn quoted_bool(s: &str) -> IResult<&str, bool> {
     map_res(
         delimited(tag("\""), alt((tag("true"), tag("false"))), tag("\"")),
-        |s: &str| s.parse::<bool>()
+        |s: &str| s.parse::<bool>(),
     )(s)
 }
 
@@ -152,17 +150,27 @@ fn float3(s: &str) -> IResult<&str, Float3> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_helpers::{assert_errs_immediate, ok_consuming, make_vals};
-    use nom::error::{ErrorKind, make_error};
     use nom::Err::{Error, Failure};
+    use nom::error::{ErrorKind, make_error};
 
+    use crate::test_helpers::{assert_errs_immediate, ok_consuming};
+
+    use super::*;
 
     #[test]
     fn test_val_list() {
-        assert_eq!(val_list(float3, ParamVal::Vector3)("1 2 3 1 2 3"), Ok(("", ParamVal::Vector3(vec![[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]]))));
+        assert_eq!(
+            val_list(float3, ParamVal::Vector3)("1 2 3 1 2 3"),
+            Ok((
+                "",
+                ParamVal::Vector3(vec![[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
+            ))
+        );
 
-        assert_eq!(val_list(float3, ParamVal::Vector3)("1 2 3 1 2 "), Ok((" 1 2 ", ParamVal::Vector3(vec![[1.0, 2.0, 3.0]]))));
+        assert_eq!(
+            val_list(float3, ParamVal::Vector3)("1 2 3 1 2 "),
+            Ok((" 1 2 ", ParamVal::Vector3(vec![[1.0, 2.0, 3.0]])))
+        );
     }
 
     #[test]
@@ -180,7 +188,10 @@ mod tests {
 
         assert_eq!(
             parameter(r#""vector foo" [1 1 1 2 2 2 3 3 3]"#),
-            ok_consuming(Param::new("foo".into(), Vector3(vec![[1.0, 1.0, 1.0], [2.0, 2.0, 2.0], [3.0, 3.0, 3.0]])))
+            ok_consuming(Param::new(
+                "foo".into(),
+                Vector3(vec![[1.0, 1.0, 1.0], [2.0, 2.0, 2.0], [3.0, 3.0, 3.0]])
+            ))
         );
 
         assert_eq!(
@@ -228,7 +239,7 @@ mod tests {
              "float cropwindow" [ .2 .5 .3 .8 ] "#;
         let expected = vec![
             param!(filename, String("out.exr".to_string())),
-            param!(cropwindow, Float(0.2, 0.5, 0.3, 0.8))
+            param!(cropwindow, Float(0.2, 0.5, 0.3, 0.8)),
         ];
         assert_eq!(parameter_list(input), Ok((" ", expected)))
     }

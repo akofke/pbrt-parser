@@ -1,37 +1,36 @@
-use crate::transform::{TransformStmt, transform_stmt};
-use crate::params::{Param, parameter_list};
-use nom::IResult;
-use nom::sequence::{tuple, delimited, preceded, separated_pair};
-use nom::combinator::{map, value, opt, map_res};
-use crate::{opt_ws, ws_term, quoted_string, ws_or_comment, opt_ws_term, dbg_dmp};
-use nom::bytes::complete::tag;
-use nom::branch::alt;
-use nom::multi::{separated_list, many0};
-use crate::statements::WorldStmt::{ObjectInstance, NamedMaterial, ReverseOrientation, Transform, AttributeBegin};
-use nom::error::{context, ErrorKind};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::combinator::{map, opt};
+use nom::IResult;
+use nom::sequence::{separated_pair, tuple};
 use once_cell::sync::Lazy;
-use nom::Err::Error;
-use nom::lib::std::iter::Rev;
+
+use crate::{opt_ws, opt_ws_term, quoted_string, ws_term};
+use crate::params::{Param, parameter_list};
+use crate::transform::{transform_stmt, TransformStmt};
 
 /// Create a parser for the common case of statements in the form of
 ///
 /// `TagName "type" param_list...`.
 ///
 /// E.g. `Shape "sphere" "float radius" [ 2.0 ]`
-fn tagged_named_params<'a, T, F>(tag_str: &'static str, f: F) -> impl Fn(&'a str) -> IResult<&'a str, T>
-    where F: Fn(String, Vec<Param>) -> T
+fn tagged_named_params<'a, T, F>(
+    tag_str: &'static str,
+    f: F,
+) -> impl Fn(&'a str) -> IResult<&'a str, T>
+where
+    F: Fn(String, Vec<Param>) -> T,
 {
     map(
         tuple((
             opt_ws_term(tag(tag_str)),
             opt_ws_term(quoted_string),
-            opt(parameter_list)
+            opt(parameter_list),
         )),
-        move |(_, name, params)| f(name, params.unwrap_or_else(|| Vec::with_capacity(0)))
+        move |(_, name, params)| f(name, params.unwrap_or_else(|| Vec::with_capacity(0))),
     )
 }
-
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum HeaderStmt {
@@ -82,16 +81,16 @@ pub enum WorldStmt {
     MediumInterface(String, String),
 
     Include(String),
-    ResolvedInclude(Vec<WorldStmt>)
+    ResolvedInclude(Vec<WorldStmt>),
 }
 
 impl WorldStmt {
     pub fn texture(name: String, ty: String, class: String, params: Vec<Param>) -> Self {
-        WorldStmt::Texture(Box::new(TextureStmt{
+        WorldStmt::Texture(Box::new(TextureStmt {
             name,
             ty,
             class,
-            params
+            params,
         }))
     }
 }
@@ -133,7 +132,6 @@ const WORLD_STMT_KW: [&'static str; 18] = [
     "TransformEnd",
     "ObjectBegin",
     "ObjectEnd",
-
     "ReverseOrientation",
     "Shape",
     "ObjectInstance",
@@ -162,12 +160,9 @@ pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
     let kw_match = WORLD_KW_MATCHER.find(s);
     let kw_match = match kw_match {
         Some(m) => m,
-        None => {
-            return map(transform_stmt, Transform)(s)
-        }
+        None => return map(transform_stmt, Transform)(s),
     };
 
-//        .ok_or(Error((s, ErrorKind::Tag)))?;
     let s = &s[kw_match.end()..];
     let (s, _) = opt_ws(s)?;
 
@@ -184,7 +179,7 @@ pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
         9 => parse_lightsource_params(s),
         10 => parse_arealightsource_params(s),
         11 => parse_material_params(s),
-        12 => parse_make_named_material_params(s),
+        12 => parse_mk_named_material_params(s),
         13 => parse_named_material_params(s),
         14 => texture_params(s),
         15 => parse_make_named_medium_params(s),
@@ -198,7 +193,7 @@ type_and_params!(parse_shape_params, WorldStmt::Shape);
 type_and_params!(parse_lightsource_params, WorldStmt::LightSource);
 type_and_params!(parse_arealightsource_params, WorldStmt::AreaLightSource);
 type_and_params!(parse_material_params, WorldStmt::Material);
-type_and_params!(parse_make_named_material_params, WorldStmt::MakeNamedMaterial);
+type_and_params!(parse_mk_named_material_params, WorldStmt::MakeNamedMaterial);
 type_and_params!(parse_make_named_medium_params, WorldStmt::MakeNamedMedium);
 quoted_string!(parse_object_begin_params, WorldStmt::ObjectBegin);
 quoted_string!(parse_object_instance_params, WorldStmt::ObjectInstance);
@@ -212,38 +207,33 @@ fn texture_params(s: &str) -> IResult<&str, WorldStmt> {
         opt_ws_term(quoted_string),
         opt_ws_term(quoted_string),
         opt_ws_term(quoted_string),
-        parameter_list
+        parameter_list,
     ));
     map(parser, |(name, ty, class, params)| {
         WorldStmt::texture(name, ty, class, params)
     })(s)
 }
 
-
 pub fn medium_interface_params(s: &str) -> IResult<&str, WorldStmt> {
     map(
-        tuple((
-            ws_term(quoted_string),
-            quoted_string,
-        )),
-        |(med1, med2)| WorldStmt::MediumInterface(med1, med2)
+        tuple((ws_term(quoted_string), quoted_string)),
+        |(med1, med2)| WorldStmt::MediumInterface(med1, med2),
     )(s)
 }
 
 #[cfg(test)]
 mod tests {
+
+    use crate::test_helpers::{ok_consuming};
+
+
     use super::*;
-    use crate::test_helpers::{make_vals, ok_consuming};
-    use crate::params::ParamVal;
-    use crate::WorldStmt::*;
 
     #[test]
     fn test_header_stmt() {
         let input = r#"Camera "perspective" "float fov" [90]"#;
-        let expected = HeaderStmt::Camera(
-            "perspective".to_string(),
-            vec![param!(fov, Float(90.0))]
-        );
+        let expected =
+            HeaderStmt::Camera("perspective".to_string(), vec![param!(fov, Float(90.0))]);
         assert_eq!(header_stmt(input), ok_consuming(expected))
     }
 
@@ -255,7 +245,7 @@ mod tests {
 
             ty: "spectrum".into(),
             class: "imagemap".into(),
-            params: vec![param!(filename, String("image.tga".to_string()))]
+            params: vec![param!(filename, String("image.tga".to_string()))],
         }));
         assert_eq!(world_stmt(input), ok_consuming(expected));
     }
@@ -281,67 +271,4 @@ mod tests {
 
         assert_eq!(world_stmt(input), ok_consuming(expected));
     }
-
-//    #[test]
-//    fn test_no_spaces() {
-//        let input = r#"AttributeBeginShape"sphere"AttributeEnd"#;
-//        let expected = AttributeBlock(vec![Shape("sphere".to_string(), vec![])]);
-//        assert_eq!(world_stmt(input), Ok(("", expected)));
-//    }
-//
-//    #[test]
-//    fn test_attribute_block() {
-//        let input = r#"AttributeBegin
-//        Shape "sphere"
-//        AttributeEnd"#;
-//
-//        let expected = AttributeBlock(vec![Shape("sphere".to_string(), vec![])]);
-//        assert_eq!(world_stmt(input), Ok(("", expected)));
-//    }
-//
-//    #[test]
-//    fn test_transform_block() {
-//        let input = r#"TransformBegin
-//        Shape "sphere"
-//        TransformEnd"#;
-//
-//        let expected = TransformBlock(vec![Shape("sphere".to_string(), vec![])]);
-//        assert_eq!(world_stmt(input), Ok(("", expected)));
-//    }
-
-//    #[test]
-//    fn test_instance_block() {
-//        let input = r#"ObjectBegin "foo"
-//        Shape "sphere"
-//        ObjectEnd"#;
-//
-//        let expected = InstanceBlock("foo".to_string(), vec![Shape("sphere".to_string(), vec![])]);
-//        assert_eq!(world_stmt(input), Ok(("", expected)));
-//    }
-
-//    #[test]
-//    fn test_nested_block() {
-//        let input = r#"AttributeBegin
-//            ObjectBegin "Buddha_Mesh25251"
-//
-//            AttributeBegin
-//                NamedMaterial "Buda"
-//                Shape "plymesh" "string filename" "geometry/buddha.ply"
-//            AttributeEnd
-//            ObjectEnd
-//        AttributeEnd "#;
-//
-//        let expected = AttributeBlock(vec![
-//            InstanceBlock("Buddha_Mesh25251".to_string(), vec![
-//                AttributeBlock(vec![
-//                    NamedMaterial("Buda".to_string()),
-//                    Shape("plymesh".to_string(), vec![param!(filename, String("geometry/buddha.ply".to_string()))])
-//                ])
-//            ])
-//        ]);
-//
-//        assert_eq!(world_stmt(input), Ok((" ", expected)));
-//
-//    }
 }
-

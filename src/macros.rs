@@ -17,7 +17,6 @@ macro_rules! tf {
 mod tests {
     use super::*;
     use crate::params::{Param, ParamVal};
-    use crate::make_vals;
 
     #[test]
     fn test_param() {
