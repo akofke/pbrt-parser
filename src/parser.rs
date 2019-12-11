@@ -10,6 +10,7 @@ use nom::error::{ErrorKind, ParseError};
 use std::fmt::Display;
 use nom::lib::std::fmt::{Formatter};
 use nom::Err;
+use memmap::Mmap;
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -110,8 +111,10 @@ impl PbrtParser {
         let res: Result<(), ParserError> = (&mut it).try_for_each(|stmt| {
                 match stmt {
                     WorldStmt::Include(path) if self.resolve_includes => {
-                        let contents = self.read_include_path(path)?;
-                        let (s, _) = opt_ws(&contents)?;
+                        // TODO!!!!
+                        let mmap = self.read_include_path(path)?;
+                        let contents_str = unsafe { std::str::from_utf8_unchecked(mmap.as_ref()) };
+                        let (s, _) = opt_ws(contents_str)?;
                         let remain = self.parse_world_stmts(&s)?;
                         all_consuming(opt_ws)(remain)?;
                         Ok(())
@@ -127,16 +130,21 @@ impl PbrtParser {
         Ok(remain)
     }
 
-    fn read_include_path(&self, path: impl AsRef<Path>) -> Result<String, std::io::Error> {
+    fn read_include_path(&self, path: impl AsRef<Path>) -> Result<Mmap, std::io::Error> {
         let mut incl_file_path = self.base_path.clone();
         incl_file_path.push(path);
 
         let start = std::time::Instant::now();
-        let contents = std::fs::read_to_string(&incl_file_path)?;
+        let file = std::fs::File::open(&incl_file_path)?;
+        let mmap = unsafe { memmap::Mmap::map(&file)? };
+        let len = mmap.len();
+        unsafe {
+            libc::madvise(mmap.as_ptr() as *mut _, mmap.len(), libc::MADV_SEQUENTIAL);
+        }
         let time = start.elapsed();
         // TODO
-        eprintln!("Included {:?} in {} ms, contents size {} MiB", incl_file_path.as_os_str(), time.as_millis(), contents.len() as f64 / 1024.0 / 1024.0);
-        Ok(contents)
+        eprintln!("Included {:?} in {} ms, contents size {} MiB", incl_file_path.as_os_str(), time.as_millis(), len as f64 / 1024.0 / 1024.0);
+        Ok(mmap)
     }
 }
 
