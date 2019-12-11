@@ -3,12 +3,16 @@ use crate::params::{Param, parameter_list};
 use nom::IResult;
 use nom::sequence::{tuple, delimited, preceded, separated_pair};
 use nom::combinator::{map, value, opt, map_res};
-use crate::{ws_term, quoted_string, ws_or_comment, opt_ws_term, dbg_dmp};
+use crate::{opt_ws, ws_term, quoted_string, ws_or_comment, opt_ws_term, dbg_dmp};
 use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::multi::{separated_list, many0};
-use crate::statements::WorldStmt::{ObjectInstance, NamedMaterial, ReverseOrientation, Transform};
-use nom::error::context;
+use crate::statements::WorldStmt::{ObjectInstance, NamedMaterial, ReverseOrientation, Transform, AttributeBegin};
+use nom::error::{context, ErrorKind};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use once_cell::sync::Lazy;
+use nom::Err::Error;
+use nom::lib::std::iter::Rev;
 
 /// Create a parser for the common case of statements in the form of
 ///
@@ -27,6 +31,7 @@ fn tagged_named_params<'a, T, F>(tag_str: &'static str, f: F) -> impl Fn(&'a str
         move |(_, name, params)| f(name, params.unwrap_or_else(|| Vec::with_capacity(0)))
     )
 }
+
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum HeaderStmt {
@@ -99,73 +104,130 @@ pub struct TextureStmt {
     pub params: Vec<Param>,
 }
 
-pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
-    alt((
-        value(WorldStmt::AttributeBegin, tag("AttributeBegin")),
-        value(WorldStmt::AttributeEnd, tag("AttributeEnd")),
-        value(WorldStmt::TransformBegin, tag("TransformBegin")),
-        value(WorldStmt::TransformEnd, tag("TransformEnd")),
-        object_begin_stmt,
-        value(WorldStmt::ObjectEnd, tag("ObjectEnd")),
-
-        value(WorldStmt::ReverseOrientation, tag("ReverseOrientation")),
-        map(transform_stmt, WorldStmt::Transform),
-
-        tagged_named_params("Shape", WorldStmt::Shape),
-        object_instance_stmt,
-        tagged_named_params("LightSource", WorldStmt::LightSource),
-        tagged_named_params("AreaLightSource", WorldStmt::AreaLightSource),
-        tagged_named_params("Material", WorldStmt::Material),
-        tagged_named_params("MakeNamedMaterial", WorldStmt::MakeNamedMaterial),
-        named_material_stmt,
-        texture_stmt,
-        tagged_named_params("MakeNamedMedium", WorldStmt::MakeNamedMedium),
-
-        include_stmt
-    ))(s)
+macro_rules! type_and_params {
+    ($fn_name:ident, $constructor:expr) => {
+        fn $fn_name(s: &str) -> IResult<&str, WorldStmt> {
+            let (s, (ty, params)) = separated_pair(quoted_string, opt_ws, opt(parameter_list))(s)?;
+            let params = params.unwrap_or(Vec::new());
+            let stmt = $constructor(ty, params);
+            Ok((s, stmt))
+        }
+    };
 }
 
+macro_rules! quoted_string {
+    ($fn_name:ident, $constructor:expr) => {
+        fn $fn_name(s: &str) -> IResult<&str, WorldStmt> {
+            let (s, name) = quoted_string(s)?;
+            let stmt = $constructor(name);
+            Ok((s, stmt))
+        }
+    };
+}
+
+// TODO: find some way to statically check that these are kept in sync with parser fns etc
+const WORLD_STMT_KW: [&'static str; 18] = [
+    "AttributeBegin",
+    "AttributeEnd",
+    "TransformBegin",
+    "TransformEnd",
+    "ObjectBegin",
+    "ObjectEnd",
+
+    "ReverseOrientation",
+    "Shape",
+    "ObjectInstance",
+    "LightSource",
+    "AreaLightSource",
+    "Material",
+    "MakeNamedMaterial",
+    "NamedMaterial",
+    "Texture",
+    "MakeNamedMedium",
+    "MediumInterface",
+    "Include",
+];
+
+static WORLD_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
+    AhoCorasickBuilder::new()
+        .auto_configure(&WORLD_STMT_KW)
+        .anchored(true)
+        .dfa(true)
+        .build(&WORLD_STMT_KW)
+});
+
+pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
+    use crate::WorldStmt::*;
+
+    let kw_match = WORLD_KW_MATCHER.find(s);
+    let kw_match = match kw_match {
+        Some(m) => m,
+        None => {
+            return map(transform_stmt, Transform)(s)
+        }
+    };
+
+//        .ok_or(Error((s, ErrorKind::Tag)))?;
+    let s = &s[kw_match.end()..];
+    let (s, _) = opt_ws(s)?;
+
+    match kw_match.pattern() {
+        0 => Ok((s, AttributeBegin)),
+        1 => Ok((s, AttributeEnd)),
+        2 => Ok((s, TransformBegin)),
+        3 => Ok((s, TransformEnd)),
+        4 => parse_object_begin_params(s),
+        5 => Ok((s, ObjectEnd)),
+        6 => Ok((s, ReverseOrientation)),
+        7 => parse_shape_params(s),
+        8 => parse_object_instance_params(s),
+        9 => parse_lightsource_params(s),
+        10 => parse_arealightsource_params(s),
+        11 => parse_material_params(s),
+        12 => parse_make_named_material_params(s),
+        13 => parse_named_material_params(s),
+        14 => texture_params(s),
+        15 => parse_make_named_medium_params(s),
+        16 => medium_interface_params(s),
+        17 => parse_include_params(s),
+        n @ _ => panic!("{}", n),
+    }
+}
+
+type_and_params!(parse_shape_params, WorldStmt::Shape);
+type_and_params!(parse_lightsource_params, WorldStmt::LightSource);
+type_and_params!(parse_arealightsource_params, WorldStmt::AreaLightSource);
+type_and_params!(parse_material_params, WorldStmt::Material);
+type_and_params!(parse_make_named_material_params, WorldStmt::MakeNamedMaterial);
+type_and_params!(parse_make_named_medium_params, WorldStmt::MakeNamedMedium);
+quoted_string!(parse_object_begin_params, WorldStmt::ObjectBegin);
+quoted_string!(parse_object_instance_params, WorldStmt::ObjectInstance);
+quoted_string!(parse_named_material_params, WorldStmt::NamedMaterial);
+quoted_string!(parse_include_params, WorldStmt::Include);
+
 // `Texture "name" "type" "class" params...`
-fn texture_stmt(s: &str) -> IResult<&str, WorldStmt> {
+// TODO opt ws
+fn texture_params(s: &str) -> IResult<&str, WorldStmt> {
     let parser = tuple((
-        ws_term(tag("Texture")),
-        ws_term(quoted_string),
-        ws_term(quoted_string),
-        ws_term(quoted_string),
+        opt_ws_term(quoted_string),
+        opt_ws_term(quoted_string),
+        opt_ws_term(quoted_string),
         parameter_list
     ));
-    map(parser, |(_, name, ty, class, params)| {
+    map(parser, |(name, ty, class, params)| {
         WorldStmt::texture(name, ty, class, params)
     })(s)
 }
 
-pub fn object_instance_stmt(s: &str) -> IResult<&str, WorldStmt> {
-    // TODO: lots of ways to do this, investigate perf
-//    map(separated_pair(tag("ObjectInstance"), ws_or_comment, quoted_string), |(_, name)| ObjectInstance(name))(s)
-    map(preceded(ws_term(tag("ObjectInstance")), quoted_string), ObjectInstance)(s)
-}
 
-pub fn named_material_stmt(s: &str) -> IResult<&str, WorldStmt> {
-    map(separated_pair(tag("NamedMaterial"), ws_or_comment, quoted_string), |(_, name)| NamedMaterial(name))(s)
-}
-
-pub fn medium_interface_stmt(s: &str) -> IResult<&str, WorldStmt> {
+pub fn medium_interface_params(s: &str) -> IResult<&str, WorldStmt> {
     map(
         tuple((
-            ws_term(tag("MediumInterface")),
             ws_term(quoted_string),
             quoted_string,
         )),
-        |(_, med1, med2)| WorldStmt::MediumInterface(med1, med2)
+        |(med1, med2)| WorldStmt::MediumInterface(med1, med2)
     )(s)
-}
-
-fn include_stmt(s: &str) -> IResult<&str, WorldStmt> {
-    map(preceded(ws_term(tag("Include")), quoted_string), WorldStmt::Include)(s)
-}
-
-fn object_begin_stmt(s: &str) -> IResult<&str, WorldStmt> {
-    map(preceded(ws_term(tag("ObjectBegin")), quoted_string), WorldStmt::ObjectBegin)(s)
 }
 
 #[cfg(test)]
@@ -195,7 +257,7 @@ mod tests {
             class: "imagemap".into(),
             params: vec![param!(filename, String("image.tga".to_string()))]
         }));
-        assert_eq!(texture_stmt(input), ok_consuming(expected));
+        assert_eq!(world_stmt(input), ok_consuming(expected));
     }
 
     #[test]
