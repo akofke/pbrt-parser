@@ -21,6 +21,7 @@ mod params;
 pub mod parser;
 pub mod statements;
 mod transform;
+mod interner;
 
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
