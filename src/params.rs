@@ -7,6 +7,10 @@ use nom::sequence::{tuple, terminated, delimited, preceded, separated_pair};
 use nom::bytes::complete::tag;
 use nom::branch::alt;
 use nom::multi::{many0, separated_nonempty_list, separated_list};
+use once_cell::sync::Lazy;
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use nom::Err::Error;
+use nom::error::ErrorKind;
 
 
 #[derive(PartialEq, Debug, Clone)]
@@ -30,7 +34,6 @@ pub enum ParamVal {
     Vector2(Vec<Float2>),
     Vector3(Vec<Float3>),
     Normal3(Vec<Float3>),
-//    Spectrum(Vec<SpectrumVal>),
     Bool(Vec<bool>),
     String(Vec<String>),
     Texture(Vec<String>),
@@ -46,61 +49,82 @@ pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
     separated_list(ws_or_comment, parameter)(s)
 }
 
-fn typed_param<'a, D, V>(
-    decl: D,
-    val: V
-) -> impl Fn(&'a str) -> IResult<&'a str, Param>
-    where D: Fn(&'a str) -> IResult<&'a str, &'a str>,
-          V: Fn(&'a str) -> IResult<&'a str, ParamVal>
-{
-    move |s| {
-        let (s, (_, name)) = delimited(
-            tag("\""),
-            // assumes names can only be alphanumeric, change this if needed
-            separated_pair(
-                &decl,
-                space1,
-                cut(map(alphanumeric1, |s: &str| s.to_string()))),
-            tag("\"")
-        )(s)?;
 
-        let (s, _) = opt_ws(s)?;
+const PARAM_KW: [&'static str; 18] = [
+    "integer",
+    "float",
+    "point2",
+    "vector2",
 
-        // Can be one or more values enclosed in brackets, or single value without brackets
-        let (s, value) = alt((
-            delimited(
-                opt_ws_term(tag("[")),
-                cut(&val),
-                cut(preceded(opt_ws, tag("]")))
-            ),
-            cut(&val)
-        ))(s)?;
-        Ok((s, Param { name, value }))
-    }
-}
+    "point3",
+    "point",
+
+    "vector3",
+    "vector",
+
+    "normal3",
+    "normal",
+
+    "bool",
+    "string",
+    "texture",
+
+    "rgb",
+    "color",
+    "xyz",
+    "spectrum",
+    "blackbody",
+];
+
+static PARAM_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
+    AhoCorasickBuilder::new()
+        .auto_configure(&PARAM_KW)
+        .anchored(true)
+        .dfa(true)
+        .build(&PARAM_KW)
+});
 
 fn parameter(s: &str) -> IResult<&str, Param> {
     use ParamVal::*;
-    alt((
-        typed_param(tag("integer"), val_list(integer, Int)),
-        typed_param(tag("float"), val_list(float, Float)),
-        typed_param(tag("point2"), val_list(float2, Point2)),
-        typed_param(alt((tag("point3"), tag("point"))), val_list(float3, Point3)),
-        typed_param(tag("vector2"), val_list(float2, Vector2)),
-        typed_param(alt((tag("vector3"), tag("vector"))), val_list(float3, Vector3)),
-        typed_param(alt((tag("normal3"), tag("normal"))), val_list(float3, Normal3)),
-        typed_param(tag("bool"), val_list(quoted_bool, Bool)),
-        typed_param(tag("string"), val_list(quoted_string, String)),
-        typed_param(tag("texture"), val_list(quoted_string, Texture)),
-        typed_param(alt((tag("rgb"), tag("color"))), val_list(float3, SpectrumRgb)),
-        typed_param(tag("xyz"), val_list(float3, SpectrumXyz)),
-        typed_param(tag("spectrum"), val_list(float2, SpectrumSampled)),
-        typed_param(tag("blackbody"), val_list(float2, SpectrumBlackbody)),
-    ))(s)
+
+    let (s, _) = opt_ws_term(tag("\""))(s)?;
+
+    let param_type_match = PARAM_KW_MATCHER.find(s).ok_or(Error((s, ErrorKind::Tag)))?;
+    let s = &s[param_type_match.end()..];
+    let (s, _) = opt_ws(s)?;
+    let (s, name) = map(alphanumeric1, |s: &str| s.to_string())(s)?;
+
+    let (s, _) = opt_ws_term(tag("\""))(s)?;
+    let (s, found_bracket) = opt(opt_ws_term(tag("[")))(s).map(|(s, o)| (s, o.is_some()))?;
+
+    let (s, val) = match param_type_match.pattern() {
+        0 => val_list(integer, Int)(s),
+        1 => val_list(float, Float)(s),
+        2 => val_list(float2, Point2)(s),
+        3 => val_list(float2, Vector2)(s),
+        4 | 5 => val_list(float3, Point3)(s),
+        6 | 7 => val_list(float3, Vector3)(s),
+        8 | 9 => val_list(float3, Normal3)(s),
+        10 => val_list(quoted_bool, Bool)(s),
+        11 => val_list(quoted_string, String)(s),
+        12 => val_list(quoted_string, Texture)(s),
+        13 | 14 => val_list(float3, SpectrumRgb)(s),
+        15 => val_list(float3, SpectrumXyz)(s),
+        16 => val_list(float2, SpectrumSampled)(s),
+        17 => val_list(float2, SpectrumBlackbody)(s),
+        n @ _ => panic!("{}", n),
+    }?;
+
+    let s = if found_bracket {
+        cut(preceded(opt_ws, tag("]")))(s)?.0
+    } else { s };
+
+    let param = Param::new(name, val);
+    Ok((s, param))
 }
 
 fn val_list<'a, T>(val: impl Fn(&'a str) -> IResult<&'a str, T>, f: impl Fn(Vec<T>) -> ParamVal) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal> {
-    map(separated_list(ws_or_comment, val), f)
+    cut(map(separated_list(ws_or_comment, val), f))
 }
 
 fn integer(s: &str) -> IResult<&str, i32> {
@@ -133,32 +157,6 @@ mod tests {
     use nom::error::{ErrorKind, make_error};
     use nom::Err::{Error, Failure};
 
-
-//    #[test]
-//    fn test_param_value() {
-//        assert_eq!(parameter_value(int_val, "[1 2 3]"), Ok(("", make_vals(ParamVal::Int, &[1, 2, 3]))));
-//
-//        assert_eq!(parameter_value(int_val, "1"), Ok(("", make_vals(ParamVal::Int, &[1]))));
-//
-//        assert_eq!(parameter_value(int_val, "[ 1 2\n3#comment\n4 ]"), Ok(("", make_vals(ParamVal::Int, &[1, 2, 3, 4]))));
-//
-//        assert_eq!(
-//            parameter_value(vector3_val, "[ 1 1 1.0 2.0\n2#comment\n2 ]"),
-//            Ok(("", make_vals(ParamVal::Vector3, &[[1.0, 1.0, 1.0], [2.0, 2.0, 2.0]]))));
-//    }
-
-//    #[test]
-//    fn test_param_decl() {
-//        assert_eq!(
-//            param_declaration(r#""float name""#),
-//            ok_consuming((ParamType::Float, "name".to_string()))
-//        );
-//
-//        assert_eq!(
-//            param_declaration(r#""nope name""#),
-//            Err((Error((r#"nope name""#, ErrorKind::Tag))))
-//        );
-//    }
 
     #[test]
     fn test_val_list() {

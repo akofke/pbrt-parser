@@ -39,7 +39,7 @@ fn ws_term<'a, T>(f: impl Fn(&'a str) -> IResult<&'a str, T>) -> impl Fn(&'a str
     terminated(f, ws_or_comment)
 }
 
-fn opt_ws(s: &str) -> IResult<&str, ()> {
+pub fn opt_ws(s: &str) -> IResult<&str, ()> {
     opt(ws_or_comment)(s).map(|(s, _)| (s, ()))
 }
 
