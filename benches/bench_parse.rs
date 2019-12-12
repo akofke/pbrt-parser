@@ -1,6 +1,6 @@
 use rand::{thread_rng, Rng};
 use rand::distributions::WeightedIndex;
-use pbrt_parser::Float3;
+use pbrt_parser::{Float3, ws_or_comment, opt_ws};
 use criterion::{Criterion, Throughput, BenchmarkId, criterion_group, criterion_main};
 use pbrt_parser::parser::PbrtParser;
 use std::fmt::Write;
@@ -90,107 +90,63 @@ pub fn bench_instances(c: &mut Criterion) {
     }
 }
 
-pub fn bench_match_kw(c: &mut Criterion) {
-    let patterns = &["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
-    let matcher = AhoCorasickBuilder::new()
-        .anchored(true)
-        .dfa(true)
-        .auto_configure(patterns)
-        .build(patterns);
-
-    fn ac() -> &'static AhoCorasick {
-        static AC: OnceCell<AhoCorasick> = OnceCell::new();
-        AC.get_or_init(|| {
-            let patterns = &["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
-            AhoCorasickBuilder::new()
-                .anchored(true)
-                .dfa(true)
-                .auto_configure(patterns)
-                .build(patterns)
-        })
-    }
-
-
-    let input = "five";
-
-    let mut group = c.benchmark_group("match kw");
-    group.throughput(Throughput::Bytes(input.len() as u64));
-
-    group.bench_with_input("nom", &input, |b, &input| {
-        b.iter(|| nom_parser(input).unwrap());
-    });
-
-    group.bench_with_input("aho", &input, |b, &input| {
-        b.iter(|| matcher.find(input).unwrap().pattern());
-    });
-
-    group.bench_with_input("aho_global", &input, |b, &input| {
-        b.iter(|| ac().find(input).unwrap().pattern());
-    });
-
-}
-
 pub fn bench_parse_ws(c: &mut Criterion) {
-    fn eat_ws_nom(s: &[u8]) -> IResult<&[u8], ()> {
-        nom::character::complete::multispace1(s).map(|(s, _)| (s, ()))
-    }
-    let input: &[u8] = b"                     \n\n \t\t    v";
-    assert_eq!(eat_ws1(input), b"v");
-    assert_eq!(eat_ws2(input), b"v");
-    assert_eq!(eat_ws_nom(input).unwrap().0, b"v");
+    let input: &str = "                   #hi  \n\n \t\t    v";
+    let short_sp = " 1";
+    assert_eq!(ws_or_comment(input).unwrap().0, "v");
+    assert_eq!(eat_opt_ws(input.as_bytes()), b"v");
 
     let mut group = c.benchmark_group("eat ws");
     group.throughput(Throughput::Bytes(input.len() as u64));
 
-    group.bench_with_input("ws1", &input, |b, &input| {
-        b.iter(|| eat_ws1(input));
+    group.bench_with_input(BenchmarkId::new("nom", "long"), &input, |b, &input| {
+        b.iter(|| opt_ws(input));
     });
 
-    group.bench_with_input("ws2", &input, |b, &input| {
-        b.iter(|| eat_ws2(input));
+    group.bench_with_input(BenchmarkId::new("nom", "short"), &short_sp, |b, &input| {
+        b.iter(|| opt_ws(input));
     });
 
-    group.bench_with_input("nom", &input, |b, &input| {
-        b.iter(|| eat_ws_nom(input));
+    group.bench_with_input(BenchmarkId::new("custom", "long"), &input, |b, &input| {
+        b.iter(|| eat_opt_ws(input.as_bytes()));
+    });
+
+    group.bench_with_input(BenchmarkId::new("custom", "short"), &short_sp, |b, &input| {
+        b.iter(|| eat_opt_ws(input.as_bytes()));
     });
 
 }
 
+#[inline]
+pub fn eat_opt_ws(s: &[u8]) -> &[u8] {
+    if s.len() >= 2 && s[0].is_ascii_whitespace() && !s[1].is_ascii_whitespace() && !s[1] == b'#' {
+        return &s[1..]
+    }
+    let mut s = trim_ws_start(s);
+    while !s.is_empty() && s[0] == b'#' {
+        s = trim_comment(s);
+        s = trim_ws_start(s);
+    }
+    s
+}
 
-fn eat_ws1(s: &[u8]) -> &[u8] {
-    let i = s.iter().position(|&b| !(b==b' ' || b == b'\t' || b == b'\n' || b == b'\r'));
+#[inline]
+fn trim_ws_start(s: &[u8]) -> &[u8] {
+    let i = s.iter().position(|&b| !b.is_ascii_whitespace());
     match i {
         Some(i) => &s[i..],
-        None => s
+        None => b""
     }
 }
 
-pub fn eat_ws2(s: &[u8]) -> &[u8] {
-    let mut i = 0;
-    while i < s.len() {
-        let &b = unsafe { s.get_unchecked(i) };
-        if b == b' ' || b == b'\n' || b == b'\t' || b == b'\r' {
-            i += 1;
-        } else {
-            break;
-        }
+#[inline]
+fn trim_comment(s: &[u8]) -> &[u8] {
+    let i = s.iter().position(|&b| b == b'\n');
+    match i {
+        Some(i) => &s[i..],
+        None => b""
     }
-    &s[i..]
 }
 
-fn nom_parser(s: &str) -> IResult<&str, usize> {
-    alt((
-        value(0, tag("zero")),
-        value(1, tag("one")),
-        value(2, tag("two")),
-        value(3, tag("three")),
-        value(4, tag("four")),
-        value(5, tag("five")),
-        value(6, tag("six")),
-        value(7, tag("seven")),
-        value(8, tag("eight")),
-    ))(s)
-}
-
-criterion_group!(benches, bench_single_large_mesh, bench_curves, bench_instances, bench_match_kw, bench_parse_ws);
+criterion_group!(benches, bench_single_large_mesh, bench_curves, bench_instances, bench_parse_ws);
 criterion_main!(benches);

@@ -1,11 +1,11 @@
-use std::convert::{TryFrom, TryInto};
+use std::convert::{TryFrom, TryInto, Infallible};
 use std::fmt::{Debug, Display};
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{multispace1, none_of};
 use nom::combinator::{map, map_res, opt};
-use nom::{IResult, InputTakeAtPosition};
+use nom::{IResult, InputTakeAtPosition, AsBytes};
 use nom::multi::{many0, many1, separated_nonempty_list};
 use nom::number::complete::float;
 use nom::sequence::{delimited, terminated};
@@ -17,6 +17,8 @@ pub use transform::TransformStmt;
 use once_cell::sync::Lazy;
 use crate::interner::StringInterner;
 use std::sync::Arc;
+use nom::Err::Error;
+use nom::error::ErrorKind;
 
 #[macro_use]
 pub mod macros;
@@ -46,20 +48,24 @@ fn quoted_string_owned(s: &str) -> IResult<&str, String> {
     )(s) 
 }
 
+#[inline]
 fn ws_term<'a, T>(
     f: impl Fn(&'a str) -> IResult<&'a str, T>,
 ) -> impl Fn(&'a str) -> IResult<&'a str, T> {
     terminated(f, ws_or_comment)
 }
 
+#[inline]
 pub fn opt_ws(s: &str) -> IResult<&str, ()> {
-    opt(ws_or_comment)(s).map(|(s, _)| (s, ()))
+    let s = unsafe { std::str::from_utf8_unchecked(eat_opt_ws(s.as_bytes())) };
+    Ok((s, ()))
 }
 
+#[inline]
 fn opt_ws_term<'a, T>(
     f: impl Fn(&'a str) -> IResult<&'a str, T>,
 ) -> impl Fn(&'a str) -> IResult<&'a str, T> {
-    terminated(f, opt(ws_or_comment))
+    terminated(f, opt_ws)
 }
 
 fn fixed_float_list<A>(s: &str) -> IResult<&str, Box<A>>
@@ -75,19 +81,45 @@ fn float_list(s: &str) -> IResult<&str, Vec<f32>> {
     separated_nonempty_list(ws_or_comment, float)(s)
 }
 
-fn ws_or_comment(s: &str) -> IResult<&str, ()> {
-    many1(single_ws_or_comment)(s).map(|(s, _)| (s, ()))
+#[inline]
+pub fn ws_or_comment(s: &str) -> IResult<&str, ()> {
+    let trimmed = unsafe { std::str::from_utf8_unchecked(eat_opt_ws(s.as_bytes())) };
+    if std::ptr::eq(s, trimmed) || s.is_empty() && trimmed.is_empty() {
+        Err(Error((s, ErrorKind::MultiSpace)))
+    } else {
+        Ok((trimmed, ()))
+    }
 }
 
-fn single_ws_or_comment(s: &str) -> IResult<&str, ()> {
-    alt((multispace1, comment))(s).map(|(s, _)| (s, ()))
+#[inline]
+pub fn eat_opt_ws(s: &[u8]) -> &[u8] {
+    if s.len() >= 2 && s[0].is_ascii_whitespace() && !s[1].is_ascii_whitespace() && !s[1] == b'#' {
+        return &s[1..]
+    }
+    let mut s = trim_ws_start(s);
+    while !s.is_empty() && s[0] == b'#' {
+        s = trim_comment(s);
+        s = trim_ws_start(s);
+    }
+    s
 }
 
-/// A comment starts with a '#' and continues until a line ending
-/// Produces the contents of the comment, not including the '#' or the newline.
-fn comment(s: &str) -> IResult<&str, &str> {
-    let (s, _) = tag("#")(s)?;
-    take_till(|c| c == '\n' || c == '\r')(s)
+#[inline]
+fn trim_ws_start(s: &[u8]) -> &[u8] {
+    let i = s.iter().position(|&b| !b.is_ascii_whitespace());
+    match i {
+        Some(i) => &s[i..],
+        None => b""
+    }
+}
+
+#[inline]
+fn trim_comment(s: &[u8]) -> &[u8] {
+    let i = s.iter().position(|&b| b == b'\n');
+    match i {
+        Some(i) => &s[i..],
+        None => b""
+    }
 }
 
 pub fn dbg_dmp<'a, I: Display + Clone, F, O, E: Debug>(
@@ -132,21 +164,16 @@ pub(crate) mod test_helpers {
 mod tests {
     use nom::error::ErrorKind;
 
-    use crate::{comment, fixed_float_list, float_list, ws_or_comment};
+    use crate::{fixed_float_list, float_list, ws_or_comment, opt_ws};
 
     #[test]
-    fn test_comment() {
-        assert_eq!(comment("# comment\n"), Ok(("\n", " comment")));
-        assert_eq!(
-            comment("not # comment"),
-            Err(nom::Err::Error(("not # comment", ErrorKind::Tag)))
-        );
-        assert_eq!(comment("#no newline"), Ok(("", "no newline")));
-    }
-
-    #[test]
-    fn test_multiple_ws() {
+    fn test_ws() {
         assert_eq!(ws_or_comment("#comment\n\t\n#another\n"), Ok(("", ())));
+
+        assert_eq!(opt_ws(" #hi\n foo"), Ok(("foo", ())));
+        assert_eq!(opt_ws(" #hi"), Ok(("", ())));
+        assert_eq!(opt_ws("#hi"), Ok(("", ())));
+        assert_eq!(opt_ws(""), Ok(("", ())));
     }
 
     #[test]

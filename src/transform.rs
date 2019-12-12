@@ -2,7 +2,7 @@ use nom::IResult;
 use nom::combinator::{map, opt};
 use nom::bytes::complete::tag;
 use nom::sequence::{separated_pair, delimited, preceded};
-use crate::{ws_or_comment, fixed_float_list, opt_ws_term};
+use crate::{ws_or_comment, fixed_float_list, opt_ws_term, opt_ws};
 use nom::branch::alt;
 use std::convert::TryFrom;
 
@@ -31,13 +31,13 @@ fn tagged_float_list<'s, A, M>(
     map(
         separated_pair(
             tag(tag_name),
-            ws_or_comment,
+            opt_ws,
             alt((
                 fixed_float_list,
                 delimited(
                     opt_ws_term(tag("[")),
                     fixed_float_list,
-                    preceded(opt(ws_or_comment), tag("]"))
+                    preceded(opt_ws, tag("]"))
                 )
             ))
         ),
