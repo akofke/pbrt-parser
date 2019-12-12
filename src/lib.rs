@@ -5,7 +5,7 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{multispace1, none_of};
 use nom::combinator::{map, map_res, opt};
-use nom::IResult;
+use nom::{IResult, InputTakeAtPosition};
 use nom::multi::{many0, many1, separated_nonempty_list};
 use nom::number::complete::float;
 use nom::sequence::{delimited, terminated};
@@ -26,11 +26,18 @@ mod interner;
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
 
-fn quoted_string(s: &str) -> IResult<&str, String> {
+fn quoted_string(s: &str) -> IResult<&str, &str> {
+    let (s, _) = tag("\"")(s)?;
+    let (s, contents) = s.split_at_position_complete(|c| c == '\"')?;
+    let (s, _) = tag("\"")(s)?;
+    Ok((s, contents))
+}
+
+fn quoted_string_owned(s: &str) -> IResult<&str, String> {
     map(
         delimited(tag("\""), many0(none_of("\"")), tag("\"")),
         |chars: Vec<char>| chars.into_iter().collect(),
-    )(s)
+    )(s) 
 }
 
 fn ws_term<'a, T>(

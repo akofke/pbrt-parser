@@ -1,4 +1,4 @@
-use crate::statements::{HeaderStmt, WorldStmt, world_stmt, header_stmt};
+use crate::statements::{HeaderStmt, WorldStmt, world_stmt, header_stmt, TextureStmt};
 use nom::IResult;
 use nom::sequence::{delimited, preceded, terminated};
 use crate::{ws_term, ws_or_comment, single_ws_or_comment, opt_ws_term, opt_ws};
@@ -11,6 +11,8 @@ use std::fmt::Display;
 use nom::lib::std::fmt::{Formatter};
 use nom::Err;
 use memmap::Mmap;
+use crate::interner::StringInterner;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -47,20 +49,24 @@ impl std::error::Error for ParserError {
 
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub struct PbrtScene {
     pub header: Vec<HeaderStmt>,
-    pub world: Vec<WorldStmt>,
+    pub world: Vec<WorldStmt<Rc<str>>>,
+//    strings: StringInterner,
 }
 
-struct ParserState {
-    world: Vec<WorldStmt>,
+impl PartialEq for PbrtScene {
+    fn eq(&self, other: &Self) -> bool {
+        (&self.header, &self.world) == (&other.header, &other.world)
+    }
 }
 
 pub struct PbrtParser<> {
     pub base_path: PathBuf,
     pub resolve_includes: bool,
-    state: ParserState
+    world: Vec<WorldStmt<Rc<str>>>,
+    interner: StringInterner,
 }
 
 impl PbrtParser {
@@ -72,9 +78,8 @@ impl PbrtParser {
         let parser = PbrtParser {
             base_path,
             resolve_includes: true,
-            state: ParserState {
-                world: Vec::new(),
-            }
+            world: Vec::new(),
+            interner: StringInterner::default(),
         };
         let contents = std::fs::read_to_string(&path)?;
         // TODO
@@ -87,9 +92,8 @@ impl PbrtParser {
         let parser = PbrtParser {
             base_path: PathBuf::new(),
             resolve_includes: false,
-            state: ParserState {
-                world: Vec::new(),
-            }
+            world: vec![],
+            interner: Default::default()
         };
         let scene = parser.parse_string(contents)?;
         Ok(scene)
@@ -101,12 +105,11 @@ impl PbrtParser {
         let remain = self.parse_world_stmts(s)?;
         let (_, _) = all_consuming(opt_ws_term(tag("WorldEnd")))(remain)?;
 
-        let scene = PbrtScene { header, world: self.state.world };
+        let scene = PbrtScene { header, world: self.world };
         Ok(scene)
     }
 
     fn parse_world_stmts<'a>(&mut self, contents: &'a str) -> Result<&'a str, ParserError> {
-        let state = &mut self.state;
         let mut it = iterator(contents, opt_ws_term(world_stmt));
         let res: Result<(), ParserError> = (&mut it).try_for_each(|stmt| {
                 match stmt {
@@ -120,7 +123,8 @@ impl PbrtParser {
                         Ok(())
                     },
                     stmt @ _ => {
-                        self.state.world.push(stmt);
+                        let interned_stmt = self.intern_stmt_strings(stmt);
+                        self.world.push(interned_stmt);
                         Ok(())
                     }
                 }
@@ -145,6 +149,39 @@ impl PbrtParser {
         // TODO
         eprintln!("Included {:?} in {} ms, contents size {} MiB", incl_file_path.as_os_str(), time.as_millis(), len as f64 / 1024.0 / 1024.0);
         Ok(mmap)
+    }
+
+    fn intern_stmt_strings(&self, stmt: WorldStmt<&str>) -> WorldStmt<Rc<str>> {
+        use WorldStmt::*;
+        let i = &self.interner;
+        match stmt {
+            AttributeBegin => AttributeBegin,
+            AttributeEnd => AttributeEnd,
+            TransformBegin => TransformBegin,
+            TransformEnd => TransformEnd,
+            ObjectEnd => ObjectEnd,
+            ReverseOrientation => ReverseOrientation,
+            ObjectBegin(s) => ObjectBegin(i.get_or_intern(s)),
+            Transform(tf) => Transform(tf),
+            Shape(s, p) => Shape(i.get_or_intern(s), p),
+            ObjectInstance(s) => ObjectInstance(i.get_or_intern(s)),
+            LightSource(s, p) => LightSource(i.get_or_intern(s), p),
+            AreaLightSource(s, p) => AreaLightSource(i.get_or_intern(s), p),
+            Material(s, p) => Material(i.get_or_intern(s), p),
+            MakeNamedMaterial(s, p) => MakeNamedMaterial(i.get_or_intern(s), p),
+            NamedMaterial(s) => NamedMaterial(i.get_or_intern(s)),
+            Texture(tex) => {
+                let TextureStmt { name, ty, class, params } = *tex;
+                WorldStmt::texture(i.get_or_intern(name), i.get_or_intern(ty), i.get_or_intern(class), params)
+            },
+            MakeNamedMedium(s, p) => MakeNamedMedium(i.get_or_intern(s), p),
+            MediumInterface(s1, s2) => MediumInterface(i.get_or_intern(s1), i.get_or_intern(s2)),
+            Include(s) => Include(i.get_or_intern(s)),
+        }
+    }
+
+    pub fn interner(&self) -> &StringInterner {
+        &self.interner
     }
 }
 

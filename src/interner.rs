@@ -1,22 +1,23 @@
 use std::cell::RefCell;
 use nom::lib::std::collections::HashSet;
+use std::rc::Rc;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct StringInterner {
-    pool: RefCell<HashSet<Box<str>>>,
+    pool: RefCell<HashSet<Rc<str>>>,
 }
 
 impl StringInterner {
-    pub fn get_or_intern<'input, 'pool>(&'pool self, s: &'input str) -> &'pool str {
+    pub fn get_or_intern(&self, s: &str) -> Rc<str> {
         let mut pool = self.pool.borrow_mut();
         if pool.contains(s) {
-            let internal_ref: &'pool str = unsafe { std::mem::transmute(pool.get(s).unwrap().as_ref()) };
-            internal_ref
+            let s_ref = pool.get(s).unwrap().clone();
+            s_ref
         } else {
-            let boxed = s.to_string().into_boxed_str();
+            let boxed: Rc<str> = s.into();
+            let s_ref = boxed.clone();
             pool.insert(boxed);
-            let ref_s: &'pool str = unsafe { std::mem::transmute(pool.get(s).unwrap().as_ref())};
-            ref_s
+            s_ref
         }
     }
 

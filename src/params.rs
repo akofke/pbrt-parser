@@ -11,7 +11,7 @@ use nom::number::complete::float;
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use once_cell::sync::Lazy;
 
-use crate::{Float2, Float3, opt_ws, opt_ws_term, quoted_string, ws_or_comment};
+use crate::{Float2, Float3, opt_ws, opt_ws_term, quoted_string, ws_or_comment, quoted_string_owned};
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Param {
@@ -99,8 +99,8 @@ fn parameter(s: &str) -> IResult<&str, Param> {
         6 | 7 => val_list(float3, Vector3)(s),
         8 | 9 => val_list(float3, Normal3)(s),
         10 => val_list(quoted_bool, Bool)(s),
-        11 => val_list(quoted_string, String)(s),
-        12 => val_list(quoted_string, Texture)(s),
+        11 => val_list(quoted_string_owned, String)(s),
+        12 => val_list(quoted_string_owned, Texture)(s),
         13 | 14 => val_list(float3, SpectrumRgb)(s),
         15 => val_list(float3, SpectrumXyz)(s),
         16 => val_list(float2, SpectrumSampled)(s),

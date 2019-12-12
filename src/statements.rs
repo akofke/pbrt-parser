@@ -6,9 +6,10 @@ use nom::IResult;
 use nom::sequence::{separated_pair, tuple};
 use once_cell::sync::Lazy;
 
-use crate::{opt_ws, opt_ws_term, quoted_string, ws_term};
+use crate::{opt_ws, opt_ws_term, quoted_string, ws_term, quoted_string_owned};
 use crate::params::{Param, parameter_list};
 use crate::transform::{transform_stmt, TransformStmt};
+use std::rc::Rc;
 
 /// Create a parser for the common case of statements in the form of
 ///
@@ -25,7 +26,7 @@ where
     map(
         tuple((
             opt_ws_term(tag(tag_str)),
-            opt_ws_term(quoted_string),
+            opt_ws_term(quoted_string_owned),
             opt(parameter_list),
         )),
         move |(_, name, params)| f(name, params.unwrap_or_else(|| Vec::with_capacity(0))),
@@ -58,34 +59,33 @@ pub fn header_stmt(s: &str) -> IResult<&str, HeaderStmt> {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum WorldStmt {
+pub enum WorldStmt<S: AsRef<str> = Rc<str>> {
     AttributeBegin,
     AttributeEnd,
     TransformBegin,
     TransformEnd,
-    ObjectBegin(String),
+    ObjectBegin(S),
     ObjectEnd,
 
     ReverseOrientation,
     Transform(TransformStmt),
 
-    Shape(String, Vec<Param>),
-    ObjectInstance(String),
-    LightSource(String, Vec<Param>),
-    AreaLightSource(String, Vec<Param>),
-    Material(String, Vec<Param>),
-    MakeNamedMaterial(String, Vec<Param>),
-    NamedMaterial(String),
-    Texture(Box<TextureStmt>),
-    MakeNamedMedium(String, Vec<Param>),
-    MediumInterface(String, String),
+    Shape(S, Vec<Param>),
+    ObjectInstance(S),
+    LightSource(S, Vec<Param>),
+    AreaLightSource(S, Vec<Param>),
+    Material(S, Vec<Param>),
+    MakeNamedMaterial(S, Vec<Param>),
+    NamedMaterial(S),
+    Texture(Box<TextureStmt<S>>),
+    MakeNamedMedium(S, Vec<Param>),
+    MediumInterface(S, S),
 
-    Include(String),
-    ResolvedInclude(Vec<WorldStmt>),
+    Include(S),
 }
 
-impl WorldStmt {
-    pub fn texture(name: String, ty: String, class: String, params: Vec<Param>) -> Self {
+impl<S: AsRef<str>> WorldStmt<S> {
+    pub fn texture(name: S, ty: S, class: S, params: Vec<Param>) -> Self {
         WorldStmt::Texture(Box::new(TextureStmt {
             name,
             ty,
@@ -96,16 +96,16 @@ impl WorldStmt {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct TextureStmt {
-    pub name: String,
-    pub ty: String,
-    pub class: String,
+pub struct TextureStmt<S: AsRef<str>> {
+    pub name: S,
+    pub ty: S,
+    pub class: S,
     pub params: Vec<Param>,
 }
 
 macro_rules! type_and_params {
     ($fn_name:ident, $constructor:expr) => {
-        fn $fn_name(s: &str) -> IResult<&str, WorldStmt> {
+        fn $fn_name(s: &str) -> IResult<&str, WorldStmt<&str>> {
             let (s, (ty, params)) = separated_pair(quoted_string, opt_ws, opt(parameter_list))(s)?;
             let params = params.unwrap_or(Vec::new());
             let stmt = $constructor(ty, params);
@@ -116,7 +116,7 @@ macro_rules! type_and_params {
 
 macro_rules! quoted_string {
     ($fn_name:ident, $constructor:expr) => {
-        fn $fn_name(s: &str) -> IResult<&str, WorldStmt> {
+        fn $fn_name(s: &str) -> IResult<&str, WorldStmt<&str>> {
             let (s, name) = quoted_string(s)?;
             let stmt = $constructor(name);
             Ok((s, stmt))
@@ -154,7 +154,7 @@ static WORLD_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
         .build(&WORLD_STMT_KW)
 });
 
-pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt> {
+pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt<&str>> {
     use crate::WorldStmt::*;
 
     let kw_match = WORLD_KW_MATCHER.find(s);
@@ -202,7 +202,7 @@ quoted_string!(parse_include_params, WorldStmt::Include);
 
 // `Texture "name" "type" "class" params...`
 // TODO opt ws
-fn texture_params(s: &str) -> IResult<&str, WorldStmt> {
+fn texture_params(s: &str) -> IResult<&str, WorldStmt<&str>> {
     let parser = tuple((
         opt_ws_term(quoted_string),
         opt_ws_term(quoted_string),
@@ -214,7 +214,7 @@ fn texture_params(s: &str) -> IResult<&str, WorldStmt> {
     })(s)
 }
 
-pub fn medium_interface_params(s: &str) -> IResult<&str, WorldStmt> {
+pub fn medium_interface_params(s: &str) -> IResult<&str, WorldStmt<&str>> {
     map(
         tuple((ws_term(quoted_string), quoted_string)),
         |(med1, med2)| WorldStmt::MediumInterface(med1, med2),
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn test_no_params() {
         let input = r#"Shape "sphere""#;
-        let expected = WorldStmt::Shape("sphere".to_string(), vec![]);
+        let expected = WorldStmt::Shape("sphere", vec![]);
 
         assert_eq!(world_stmt(input), ok_consuming(expected));
     }

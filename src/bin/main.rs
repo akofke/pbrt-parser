@@ -4,9 +4,10 @@ use pbrt_parser::statements::{WorldStmt, HeaderStmt, TextureStmt};
 use std::mem::{size_of, size_of_val};
 use pbrt_parser::{Param, ParamVal, Float3, TransformStmt, Float2};
 use std::time::Instant;
+use std::rc::Rc;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    dbg!(size_of::<WorldStmt>());
+    dbg!(size_of::<WorldStmt<Rc<str>>>());
     dbg!(size_of::<HeaderStmt>());
     dbg!(size_of::<Param>());
     dbg!(size_of::<ParamVal>());
@@ -35,6 +36,7 @@ fn print_stats(scene: &PbrtScene) {
     eprintln!("Scene memory usage: {} MiB", mb);
 }
 
+#[allow(unused_variables)]
 fn world_size(w: &[WorldStmt]) -> usize {
     w.iter().map(|s| {
         size_of::<WorldStmt>() + match s {
@@ -43,26 +45,25 @@ fn world_size(w: &[WorldStmt]) -> usize {
                 tf_size(tf)
             },
             WorldStmt::Shape(s, p) => {
-                s.len() + params_size(p)
+                params_size(p)
             },
-            WorldStmt::ObjectInstance(s) => s.len(),
-            WorldStmt::LightSource(s, p) => s.len() + params_size(p),
-            WorldStmt::AreaLightSource(s, p) => s.len() + params_size(p),
-            WorldStmt::Material(s, p) => s.len() + params_size(p),
-            WorldStmt::MakeNamedMaterial(s, p) => s.len() + params_size(p),
-            WorldStmt::NamedMaterial(s) => s.len(),
+            WorldStmt::ObjectInstance(s) => 0,
+            WorldStmt::LightSource(s, p) => params_size(p),
+            WorldStmt::AreaLightSource(s, p) => params_size(p),
+            WorldStmt::Material(s, p) => params_size(p),
+            WorldStmt::MakeNamedMaterial(s, p) => params_size(p),
+            WorldStmt::NamedMaterial(s) => 0,
             WorldStmt::Texture(b) => {
-                b.name.len() + b.ty.len() + b.class.len() + params_size(&b.params)
+                params_size(&b.params)
             },
-            WorldStmt::MakeNamedMedium(s, p) => s.len() + params_size(p),
-            WorldStmt::MediumInterface(s, s2) => s.len() + s2.len(),
-            WorldStmt::Include(s) => s.len(),
-            WorldStmt::ResolvedInclude(v) => world_size(v),
+            WorldStmt::MakeNamedMedium(s, p) => params_size(p),
+            WorldStmt::MediumInterface(s, s2) => 0,
+            WorldStmt::Include(s) => 0,
             WorldStmt::AttributeBegin => 0,
             WorldStmt::AttributeEnd => 0,
             WorldStmt::TransformBegin => 0,
             WorldStmt::TransformEnd => 0,
-            WorldStmt::ObjectBegin(s) => s.len(),
+            WorldStmt::ObjectBegin(s) => 0,
             WorldStmt::ObjectEnd => 0
         }
 
