@@ -90,7 +90,7 @@ fn vec_size<T: Sized>(v: &Vec<T>) -> usize {
 
 fn params_size(params: &[Param]) -> usize {
     params.iter().map(|p| {
-        size_of::<Param>() + p.name.len() + match &p.value {
+        size_of::<Param>() + match &p.value {
             ParamVal::Int(v) => vec_size(v),
             ParamVal::Float(v) => vec_size(v),
             ParamVal::Point2(v) => vec_size(v),
@@ -99,8 +99,8 @@ fn params_size(params: &[Param]) -> usize {
             ParamVal::Vector3(v) => vec_size(v),
             ParamVal::Normal3(v) => vec_size(v),
             ParamVal::Bool(v) => vec_size(v),
-            ParamVal::String(s) => s.len(),
-            ParamVal::Texture(s) => s.len(),
+            ParamVal::String(s) => 0,
+            ParamVal::Texture(s) => 0,
             ParamVal::SpectrumRgb(v) => vec_size(v),
             ParamVal::SpectrumXyz(v) => vec_size(v),
             ParamVal::SpectrumSampled(v) => vec_size(v),

@@ -12,21 +12,48 @@ use nom::sequence::{delimited, preceded, terminated, tuple};
 use once_cell::sync::Lazy;
 
 use crate::{Float2, Float3, opt_ws, opt_ws_term, quoted_string, ws_or_comment, quoted_string_owned};
+use std::rc::Rc;
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct Param {
-    pub name: String,
-    pub value: ParamVal,
+pub struct Param<S: AsRef<str>=Rc<str>> {
+    pub name: S,
+    pub value: ParamVal<S>,
 }
 
-impl Param {
-    pub fn new(name: String, value: ParamVal) -> Self {
+impl<S: AsRef<str>> Param<S> {
+    pub fn new(name: S, value: ParamVal<S>) -> Self {
         Self { name, value }
+    }
+
+    pub fn map_strings<F, O>(self, f: F) -> Param<O>
+        where
+            F: Fn(S) -> O,
+            O: AsRef<str>,
+    {
+        use ParamVal::*;
+        let name = f(self.name);
+        let value = match self.value {
+            String(v) => ParamVal::String(v.into_iter().map(f).collect()),
+            Texture(v) => ParamVal::Texture(v.into_iter().map(f).collect()),
+            Int(v) => Int(v),
+            Float(v) => Float(v),
+            Point2(v) => Point2(v),
+            Point3(v) => Point3(v),
+            Vector2(v) => Vector2(v),
+            Vector3(v) => Vector3(v),
+            Normal3(v) => Normal3(v),
+            Bool(v) => Bool(v),
+            SpectrumRgb(v) => SpectrumRgb(v),
+            SpectrumXyz(v) => SpectrumXyz(v),
+            SpectrumSampled(v) => SpectrumSampled(v),
+            SpectrumBlackbody(v) => SpectrumBlackbody(v),
+        };
+        Param::new(name, value)
     }
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum ParamVal {
+pub enum ParamVal<S: AsRef<str>=Rc<str>> {
     Int(Vec<i32>),
     Float(Vec<f32>),
     Point2(Vec<Float2>),
@@ -35,8 +62,8 @@ pub enum ParamVal {
     Vector3(Vec<Float3>),
     Normal3(Vec<Float3>),
     Bool(Vec<bool>),
-    String(Vec<String>),
-    Texture(Vec<String>),
+    String(Vec<S>),
+    Texture(Vec<S>),
 
     SpectrumRgb(Vec<Float3>), // TODO are these always only one value?
     SpectrumXyz(Vec<Float3>),
@@ -44,7 +71,7 @@ pub enum ParamVal {
     SpectrumBlackbody(Vec<Float2>),
 }
 
-pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
+pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param<&str>>> {
     separated_list(ws_or_comment, parameter)(s)
 }
 
@@ -77,7 +104,7 @@ static PARAM_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
         .build(&PARAM_KW)
 });
 
-fn parameter(s: &str) -> IResult<&str, Param> {
+fn parameter(s: &str) -> IResult<&str, Param<&str>> {
     use ParamVal::*;
 
     let (s, _) = opt_ws_term(tag("\""))(s)?;
@@ -85,7 +112,7 @@ fn parameter(s: &str) -> IResult<&str, Param> {
     let param_type_match = PARAM_KW_MATCHER.find(s).ok_or(Error((s, ErrorKind::Tag)))?;
     let s = &s[param_type_match.end()..];
     let (s, _) = opt_ws(s)?;
-    let (s, name) = map(alphanumeric1, |s: &str| s.to_string())(s)?;
+    let (s, name) = alphanumeric1(s)?;
 
     let (s, _) = opt_ws_term(tag("\""))(s)?;
     let (s, found_bracket) = opt(opt_ws_term(tag("[")))(s).map(|(s, o)| (s, o.is_some()))?;
@@ -99,8 +126,8 @@ fn parameter(s: &str) -> IResult<&str, Param> {
         6 | 7 => val_list(float3, Vector3)(s),
         8 | 9 => val_list(float3, Normal3)(s),
         10 => val_list(quoted_bool, Bool)(s),
-        11 => val_list(quoted_string_owned, String)(s),
-        12 => val_list(quoted_string_owned, Texture)(s),
+        11 => val_list(quoted_string, String)(s),
+        12 => val_list(quoted_string, Texture)(s),
         13 | 14 => val_list(float3, SpectrumRgb)(s),
         15 => val_list(float3, SpectrumXyz)(s),
         16 => val_list(float2, SpectrumSampled)(s),
@@ -120,8 +147,8 @@ fn parameter(s: &str) -> IResult<&str, Param> {
 
 fn val_list<'a, T>(
     val: impl Fn(&'a str) -> IResult<&'a str, T>,
-    f: impl Fn(Vec<T>) -> ParamVal,
-) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal> {
+    f: impl Fn(Vec<T>) -> ParamVal<&'a str>,
+) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal<&'a str>> {
     cut(map(separated_list(ws_or_comment, val), f))
 }
 
@@ -200,13 +227,13 @@ mod tests {
         );
 
         assert_eq!(
-            parameter(r#""string type" [ "matte" ]"#),
-            ok_consuming(Param::new("type".into(), String(vec!["matte".to_string()])))
+            parameter(r#""string ty" [ "matte" ]"#),
+            ok_consuming(param!(ty, String("matte")))
         );
 
         assert_eq!(
             parameter(r#""texture Kd" "mydiffuse""#),
-            ok_consuming(param!(Kd, Texture("mydiffuse".to_string())))
+            ok_consuming(param!(Kd, Texture("mydiffuse")))
         );
 
         assert_eq!(
@@ -238,7 +265,7 @@ mod tests {
         let input = r#""string filename" ["out.exr"]
              "float cropwindow" [ .2 .5 .3 .8 ] "#;
         let expected = vec![
-            param!(filename, String("out.exr".to_string())),
+            param!(filename, String("out.exr")),
             param!(cropwindow, Float(0.2, 0.5, 0.3, 0.8)),
         ];
         assert_eq!(parameter_list(input), Ok((" ", expected)))

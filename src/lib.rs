@@ -26,11 +26,11 @@ mod interner;
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
 
-fn quoted_string(s: &str) -> IResult<&str, &str> {
+fn quoted_string<'a, S: From<&'a str>>(s: &'a str) -> IResult<&'a str, S> {
     let (s, _) = tag("\"")(s)?;
     let (s, contents) = s.split_at_position_complete(|c| c == '\"')?;
     let (s, _) = tag("\"")(s)?;
-    Ok((s, contents))
+    Ok((s, contents.into()))
 }
 
 fn quoted_string_owned(s: &str) -> IResult<&str, String> {

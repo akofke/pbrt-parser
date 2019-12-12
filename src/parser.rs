@@ -1,7 +1,7 @@
 use crate::statements::{HeaderStmt, WorldStmt, world_stmt, header_stmt, TextureStmt};
 use nom::IResult;
 use nom::sequence::{delimited, preceded, terminated};
-use crate::{ws_term, ws_or_comment, single_ws_or_comment, opt_ws_term, opt_ws};
+use crate::{ws_term, ws_or_comment, single_ws_or_comment, opt_ws_term, opt_ws, Param};
 use nom::multi::{separated_list, many0, fold_many0};
 use nom::bytes::complete::tag;
 use std::path::{PathBuf, Path};
@@ -63,7 +63,7 @@ impl PartialEq for PbrtScene {
 }
 
 pub struct PbrtParser<> {
-    pub base_path: PathBuf,
+    pub file_path: PathBuf,
     pub resolve_includes: bool,
     world: Vec<WorldStmt<Rc<str>>>,
     interner: StringInterner,
@@ -71,30 +71,31 @@ pub struct PbrtParser<> {
 
 impl PbrtParser {
 
-    pub fn parse_with_includes(path: impl AsRef<Path>) -> Result<PbrtScene, ParserError> {
-        let base_path = path.as_ref().parent()
-            .ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Invalid path"))?
-            .to_path_buf();
-        let parser = PbrtParser {
-            base_path,
-            resolve_includes: true,
+    pub fn new(path: impl AsRef<Path>, resolve_includes: bool) -> Self {
+        let file_path = path.as_ref().to_path_buf();
+        Self {
+            file_path,
+            resolve_includes,
             world: Vec::new(),
-            interner: StringInterner::default(),
-        };
-        let contents = std::fs::read_to_string(&path)?;
+            interner: Default::default()
+        }
+    }
+
+    pub fn parse_with_includes(path: impl AsRef<Path>) -> Result<PbrtScene, ParserError> {
+        let parser = Self::new(path, true);
+        parser.parse()
+    }
+
+    pub fn parse(self) -> Result<PbrtScene, ParserError> {
+        let contents = std::fs::read_to_string(&self.file_path)?;
         // TODO
-        eprintln!("Main file {:?}, contents size {} MiB", path.as_ref().as_os_str(), contents.len() as f64 / 1024.0 / 1024.0);
-        let scene = parser.parse_string(&contents)?;
+        eprintln!("Main file {:?}, contents size {} MiB", &self.file_path.as_os_str(), contents.len() as f64 / 1024.0 / 1024.0);
+        let scene = self.parse_string(&contents)?;
         Ok(scene)
     }
 
     pub fn parse_string_no_includes(contents: &str) -> Result<PbrtScene, ParserError> {
-        let parser = PbrtParser {
-            base_path: PathBuf::new(),
-            resolve_includes: false,
-            world: vec![],
-            interner: Default::default()
-        };
+        let parser = Self::new("", false);
         let scene = parser.parse_string(contents)?;
         Ok(scene)
     }
@@ -106,6 +107,7 @@ impl PbrtParser {
         let (_, _) = all_consuming(opt_ws_term(tag("WorldEnd")))(remain)?;
 
         let scene = PbrtScene { header, world: self.world };
+        dbg!(self.interner);
         Ok(scene)
     }
 
@@ -135,7 +137,7 @@ impl PbrtParser {
     }
 
     fn read_include_path(&self, path: impl AsRef<Path>) -> Result<Mmap, std::io::Error> {
-        let mut incl_file_path = self.base_path.clone();
+        let mut incl_file_path = self.file_path.parent().ok_or(std::io::Error::new(std::io::ErrorKind::Other, "Invalid path"))?.to_path_buf();
         incl_file_path.push(path);
 
         let start = std::time::Instant::now();
@@ -163,21 +165,25 @@ impl PbrtParser {
             ReverseOrientation => ReverseOrientation,
             ObjectBegin(s) => ObjectBegin(i.get_or_intern(s)),
             Transform(tf) => Transform(tf),
-            Shape(s, p) => Shape(i.get_or_intern(s), p),
+            Shape(s, p) => Shape(i.get_or_intern(s), self.intern_param_strings(p)),
             ObjectInstance(s) => ObjectInstance(i.get_or_intern(s)),
-            LightSource(s, p) => LightSource(i.get_or_intern(s), p),
-            AreaLightSource(s, p) => AreaLightSource(i.get_or_intern(s), p),
-            Material(s, p) => Material(i.get_or_intern(s), p),
-            MakeNamedMaterial(s, p) => MakeNamedMaterial(i.get_or_intern(s), p),
+            LightSource(s, p) => LightSource(i.get_or_intern(s), self.intern_param_strings(p)),
+            AreaLightSource(s, p) => AreaLightSource(i.get_or_intern(s), self.intern_param_strings(p)),
+            Material(s, p) => Material(i.get_or_intern(s), self.intern_param_strings(p)),
+            MakeNamedMaterial(s, p) => MakeNamedMaterial(i.get_or_intern(s), self.intern_param_strings(p)),
             NamedMaterial(s) => NamedMaterial(i.get_or_intern(s)),
             Texture(tex) => {
                 let TextureStmt { name, ty, class, params } = *tex;
-                WorldStmt::texture(i.get_or_intern(name), i.get_or_intern(ty), i.get_or_intern(class), params)
+                WorldStmt::texture(i.get_or_intern(name), i.get_or_intern(ty), i.get_or_intern(class), self.intern_param_strings(params))
             },
-            MakeNamedMedium(s, p) => MakeNamedMedium(i.get_or_intern(s), p),
+            MakeNamedMedium(s, p) => MakeNamedMedium(i.get_or_intern(s), self.intern_param_strings(p)),
             MediumInterface(s1, s2) => MediumInterface(i.get_or_intern(s1), i.get_or_intern(s2)),
             Include(s) => Include(i.get_or_intern(s)),
         }
+    }
+
+    fn intern_param_strings(&self, params: Vec<Param<&str>>) -> Vec<Param<Rc<str>>> {
+        params.into_iter().map(|p| p.map_strings(|s| self.interner.get_or_intern(s))).collect()
     }
 
     pub fn interner(&self) -> &StringInterner {

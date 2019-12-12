@@ -21,27 +21,29 @@ fn tagged_named_params<'a, T, F>(
     f: F,
 ) -> impl Fn(&'a str) -> IResult<&'a str, T>
 where
-    F: Fn(String, Vec<Param>) -> T,
+    F: Fn(String, Vec<Param<String>>) -> T,
 {
     map(
         tuple((
             opt_ws_term(tag(tag_str)),
-            opt_ws_term(quoted_string_owned),
+            opt_ws_term(quoted_string),
             opt(parameter_list),
         )),
-        move |(_, name, params)| f(name, params.unwrap_or_else(|| Vec::with_capacity(0))),
+        move |(_, name, params)| {
+            f(name, params.map_or_else(|| Vec::with_capacity(0), |v| v.into_iter().map(|p| p.map_strings(String::from)).collect()))
+        },
     )
 }
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum HeaderStmt {
     Transform(TransformStmt),
-    Camera(String, Vec<Param>),
-    Sampler(String, Vec<Param>),
-    Film(String, Vec<Param>),
-    Filter(String, Vec<Param>),
-    Integrator(String, Vec<Param>),
-    Accelerator(String, Vec<Param>),
+    Camera(String, Vec<Param<String>>),
+    Sampler(String, Vec<Param<String>>),
+    Film(String, Vec<Param<String>>),
+    Filter(String, Vec<Param<String>>),
+    Integrator(String, Vec<Param<String>>),
+    Accelerator(String, Vec<Param<String>>),
     // Mediums
     // Tf times
 }
@@ -70,22 +72,22 @@ pub enum WorldStmt<S: AsRef<str> = Rc<str>> {
     ReverseOrientation,
     Transform(TransformStmt),
 
-    Shape(S, Vec<Param>),
+    Shape(S, Vec<Param<S>>),
     ObjectInstance(S),
-    LightSource(S, Vec<Param>),
-    AreaLightSource(S, Vec<Param>),
-    Material(S, Vec<Param>),
-    MakeNamedMaterial(S, Vec<Param>),
+    LightSource(S, Vec<Param<S>>),
+    AreaLightSource(S, Vec<Param<S>>),
+    Material(S, Vec<Param<S>>),
+    MakeNamedMaterial(S, Vec<Param<S>>),
     NamedMaterial(S),
     Texture(Box<TextureStmt<S>>),
-    MakeNamedMedium(S, Vec<Param>),
+    MakeNamedMedium(S, Vec<Param<S>>),
     MediumInterface(S, S),
 
     Include(S),
 }
 
 impl<S: AsRef<str>> WorldStmt<S> {
-    pub fn texture(name: S, ty: S, class: S, params: Vec<Param>) -> Self {
+    pub fn texture(name: S, ty: S, class: S, params: Vec<Param<S>>) -> Self {
         WorldStmt::Texture(Box::new(TextureStmt {
             name,
             ty,
@@ -100,7 +102,7 @@ pub struct TextureStmt<S: AsRef<str>> {
     pub name: S,
     pub ty: S,
     pub class: S,
-    pub params: Vec<Param>,
+    pub params: Vec<Param<S>>,
 }
 
 macro_rules! type_and_params {
@@ -245,7 +247,7 @@ mod tests {
 
             ty: "spectrum".into(),
             class: "imagemap".into(),
-            params: vec![param!(filename, String("image.tga".to_string()))],
+            params: vec![param!(filename, String("image.tga"))],
         }));
         assert_eq!(world_stmt(input), ok_consuming(expected));
     }
