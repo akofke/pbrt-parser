@@ -92,20 +92,20 @@ fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
     let (s, found_bracket) = opt(opt_ws_term(tag("[")))(s).map(|(s, o)| (s, o.is_some()))?;
 
     let (s, val) = match param_type_match.pattern() {
-        0 => val_list(integer, Int)(s),
-        1 => val_list(float, Float)(s),
-        2 => val_list(float2, Point2)(s),
-        3 => val_list(float2, Vector2)(s),
-        4 | 5 => val_list(float3, Point3)(s),
-        6 | 7 => val_list(float3, Vector3)(s),
-        8 | 9 => val_list(float3, Normal3)(s),
-        10 => val_list(quoted_bool, Bool)(s),
-        11 => val_list(quoted_string, String)(s),
-        12 => val_list(quoted_string, Texture)(s),
-        13 | 14 => val_list(float3, SpectrumRgb)(s),
-        15 => val_list(float3, SpectrumXyz)(s),
-        16 => val_list(float2, SpectrumSampled)(s),
-        17 => val_list(float2, SpectrumBlackbody)(s),
+        0 => int_vals(s),
+        1 => float_vals(s),
+        2 => point2_vals(s),
+        3 => vector2_vals(s),
+        4 | 5 => point3_vals(s),
+        6 | 7 => vector3_vals(s),
+        8 | 9 => normal3_vals(s),
+        10 => bool_vals(s),
+        11 => string_vals(s),
+        12 => texture_vals(s),
+        13 | 14 => spectrum_rgb_vals(s),
+        15 => spectrum_xyz_vals(s),
+        16 => spectrum_sampled_vals(s),
+        17 => spectrum_blackbody_vals(s),
         n @ _ => panic!("{}", n),
     }?;
 
@@ -120,12 +120,30 @@ fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
     Ok((s, param))
 }
 
-fn val_list<'a, T>(
-    val: impl Fn(&'a str) -> IResult<&'a str, T>,
-    f: impl Fn(Vec<T>) -> ParamVal<Arc<str>>,
-) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal<Arc<str>>> {
-    cut(map(separated_list(ws_or_comment, val), f))
+macro_rules! val_list {
+    ($fn_name:ident, $val_parser:expr, $constructor:ident) => {
+        fn $fn_name(s: &str) -> IResult<&str, ParamVal> {
+            let (s, val) = cut(separated_list(ws_or_comment, $val_parser))(s)?;
+            let pval = ParamVal::$constructor(val);
+            Ok((s, pval))
+        }
+    };
 }
+
+val_list!(int_vals, integer, Int);
+val_list!(float_vals, float, Float);
+val_list!(point2_vals, float2, Point2);
+val_list!(vector2_vals, float2, Vector2);
+val_list!(point3_vals, float3, Point3);
+val_list!(vector3_vals, float3, Vector3);
+val_list!(normal3_vals, float3, Normal3);
+val_list!(bool_vals, quoted_bool, Bool);
+val_list!(string_vals, quoted_string, String);
+val_list!(texture_vals, quoted_string, Texture);
+val_list!(spectrum_rgb_vals, float3, SpectrumRgb);
+val_list!(spectrum_xyz_vals, float3, SpectrumXyz);
+val_list!(spectrum_sampled_vals, float2, SpectrumSampled);
+val_list!(spectrum_blackbody_vals, float2, SpectrumBlackbody);
 
 fn integer(s: &str) -> IResult<&str, i32> {
     map_res(digit1, |s: &str| s.parse::<i32>())(s)
@@ -162,7 +180,7 @@ mod tests {
     #[test]
     fn test_val_list() {
         assert_eq!(
-            val_list(float3, ParamVal::Vector3)("1 2 3 1 2 3"),
+            vector3_vals("1 2 3 1 2 3"),
             Ok((
                 "",
                 ParamVal::Vector3(vec![[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
@@ -170,7 +188,7 @@ mod tests {
         );
 
         assert_eq!(
-            val_list(float3, ParamVal::Vector3)("1 2 3 1 2 "),
+            vector3_vals("1 2 3 1 2 "),
             Ok((" 1 2 ", ParamVal::Vector3(vec![[1.0, 2.0, 3.0]])))
         );
     }
