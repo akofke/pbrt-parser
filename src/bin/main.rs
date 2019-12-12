@@ -1,16 +1,18 @@
 use std::error::Error;
 use pbrt_parser::parser::{PbrtParser, PbrtScene};
 use pbrt_parser::statements::{WorldStmt, HeaderStmt, TextureStmt};
-use std::mem::{size_of, size_of_val};
-use pbrt_parser::{Param, ParamVal, Float3, TransformStmt, Float2};
+use std::mem::{size_of, size_of_val, align_of};
+use pbrt_parser::{Param, ParamVal, Float3, TransformStmt, Float2, STR_POOL};
 use std::time::Instant;
 use std::rc::Rc;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    dbg!(size_of::<WorldStmt<Rc<str>>>());
+    dbg!(size_of::<WorldStmt>());
     dbg!(size_of::<HeaderStmt>());
     dbg!(size_of::<Param>());
     dbg!(size_of::<ParamVal>());
+    dbg!(align_of::<Param>());
+    dbg!(align_of::<ParamVal>());
     dbg!(size_of::<Float3>());
     dbg!(size_of::<String>());
     dbg!(size_of::<Vec<f32>>());
@@ -22,6 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     match res {
         Ok(scene) => {
 //            println!("{:#?}", scene);
+            eprintln!("String pool: {:#?}", *STR_POOL);
             print_stats(&scene);
         },
         Err(e) => println!("{:#?}", e)

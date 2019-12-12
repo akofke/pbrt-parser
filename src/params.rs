@@ -11,11 +11,11 @@ use nom::number::complete::float;
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use once_cell::sync::Lazy;
 
-use crate::{Float2, Float3, opt_ws, opt_ws_term, quoted_string, ws_or_comment, quoted_string_owned};
-use std::rc::Rc;
+use crate::{Float2, Float3, opt_ws, opt_ws_term, quoted_string, ws_or_comment, STR_POOL};
+use std::sync::Arc;
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct Param<S: AsRef<str>=Rc<str>> {
+pub struct Param<S: AsRef<str>=Arc<str>> {
     pub name: S,
     pub value: ParamVal<S>,
 }
@@ -24,36 +24,10 @@ impl<S: AsRef<str>> Param<S> {
     pub fn new(name: S, value: ParamVal<S>) -> Self {
         Self { name, value }
     }
-
-    pub fn map_strings<F, O>(self, f: F) -> Param<O>
-        where
-            F: Fn(S) -> O,
-            O: AsRef<str>,
-    {
-        use ParamVal::*;
-        let name = f(self.name);
-        let value = match self.value {
-            String(v) => ParamVal::String(v.into_iter().map(f).collect()),
-            Texture(v) => ParamVal::Texture(v.into_iter().map(f).collect()),
-            Int(v) => Int(v),
-            Float(v) => Float(v),
-            Point2(v) => Point2(v),
-            Point3(v) => Point3(v),
-            Vector2(v) => Vector2(v),
-            Vector3(v) => Vector3(v),
-            Normal3(v) => Normal3(v),
-            Bool(v) => Bool(v),
-            SpectrumRgb(v) => SpectrumRgb(v),
-            SpectrumXyz(v) => SpectrumXyz(v),
-            SpectrumSampled(v) => SpectrumSampled(v),
-            SpectrumBlackbody(v) => SpectrumBlackbody(v),
-        };
-        Param::new(name, value)
-    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum ParamVal<S: AsRef<str>=Rc<str>> {
+pub enum ParamVal<S: AsRef<str>=Arc<str>> {
     Int(Vec<i32>),
     Float(Vec<f32>),
     Point2(Vec<Float2>),
@@ -71,7 +45,7 @@ pub enum ParamVal<S: AsRef<str>=Rc<str>> {
     SpectrumBlackbody(Vec<Float2>),
 }
 
-pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param<&str>>> {
+pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
     separated_list(ws_or_comment, parameter)(s)
 }
 
@@ -104,7 +78,7 @@ static PARAM_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
         .build(&PARAM_KW)
 });
 
-fn parameter(s: &str) -> IResult<&str, Param<&str>> {
+fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
     use ParamVal::*;
 
     let (s, _) = opt_ws_term(tag("\""))(s)?;
@@ -141,14 +115,15 @@ fn parameter(s: &str) -> IResult<&str, Param<&str>> {
         s
     };
 
+    let name = STR_POOL.get_or_intern(name);
     let param = Param::new(name, val);
     Ok((s, param))
 }
 
 fn val_list<'a, T>(
     val: impl Fn(&'a str) -> IResult<&'a str, T>,
-    f: impl Fn(Vec<T>) -> ParamVal<&'a str>,
-) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal<&'a str>> {
+    f: impl Fn(Vec<T>) -> ParamVal<Arc<str>>,
+) -> impl Fn(&'a str) -> IResult<&'a str, ParamVal<Arc<str>>> {
     cut(map(separated_list(ws_or_comment, val), f))
 }
 
@@ -177,10 +152,10 @@ fn float3(s: &str) -> IResult<&str, Float3> {
 
 #[cfg(test)]
 mod tests {
-    use nom::Err::{Error, Failure};
-    use nom::error::{ErrorKind, make_error};
+    use nom::Err::{Failure};
+    use nom::error::{ErrorKind};
 
-    use crate::test_helpers::{assert_errs_immediate, ok_consuming};
+    use crate::test_helpers::{ok_consuming};
 
     use super::*;
 

@@ -2,7 +2,7 @@
 #[macro_export]
 macro_rules! param {
     ($param_name:ident, $param_type:ident($($val:expr),+)) => {
-        crate::params::Param::new(stringify!($param_name).into(), crate::params::ParamVal::$param_type(vec![$($val),+]))
+        crate::params::Param::new(stringify!($param_name).into(), crate::params::ParamVal::$param_type(vec![$($val.into()),+]))
     };
 }
 

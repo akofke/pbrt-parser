@@ -1,26 +1,40 @@
 use std::cell::RefCell;
 use nom::lib::std::collections::HashSet;
 use std::rc::Rc;
+use std::sync::{Arc};
+use parking_lot::RwLock;
+use nom::lib::std::fmt::{Formatter, Error};
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct StringInterner {
-    pool: RefCell<HashSet<Rc<str>>>,
+    pool: RwLock<HashSet<Arc<str>>>,
 }
 
 impl StringInterner {
-    pub fn get_or_intern(&self, s: &str) -> Rc<str> {
-        let mut pool = self.pool.borrow_mut();
+    pub fn get_or_intern(&self, s: &str) -> Arc<str> {
+        let pool = self.pool.read();
         if pool.contains(s) {
             let s_ref = pool.get(s).unwrap().clone();
             s_ref
         } else {
-            let boxed: Rc<str> = s.into();
+            std::mem::drop(pool);
+            let mut pool = self.pool.write();
+            let boxed: Arc<str> = s.into();
             let s_ref = boxed.clone();
             pool.insert(boxed);
             s_ref
         }
     }
+}
 
+impl std::fmt::Debug for StringInterner {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.debug_set()
+            .entries(self.pool.read().iter().map(|a| {
+                format!("{} - {} refs", a, Arc::strong_count(a))
+            }))
+            .finish()
+    }
 }
 
 #[cfg(test)]

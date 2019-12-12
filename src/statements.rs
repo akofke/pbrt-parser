@@ -10,6 +10,7 @@ use crate::{opt_ws, opt_ws_term, quoted_string, ws_term, quoted_string_owned};
 use crate::params::{Param, parameter_list};
 use crate::transform::{transform_stmt, TransformStmt};
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// Create a parser for the common case of statements in the form of
 ///
@@ -21,16 +22,16 @@ fn tagged_named_params<'a, T, F>(
     f: F,
 ) -> impl Fn(&'a str) -> IResult<&'a str, T>
 where
-    F: Fn(String, Vec<Param<String>>) -> T,
+    F: Fn(String, Vec<Param>) -> T,
 {
     map(
         tuple((
             opt_ws_term(tag(tag_str)),
-            opt_ws_term(quoted_string),
+            opt_ws_term(quoted_string_owned),
             opt(parameter_list),
         )),
         move |(_, name, params)| {
-            f(name, params.map_or_else(|| Vec::with_capacity(0), |v| v.into_iter().map(|p| p.map_strings(String::from)).collect()))
+            f(name, params.unwrap_or_else(|| Vec::new()))
         },
     )
 }
@@ -38,12 +39,12 @@ where
 #[derive(PartialEq, Debug, Clone)]
 pub enum HeaderStmt {
     Transform(TransformStmt),
-    Camera(String, Vec<Param<String>>),
-    Sampler(String, Vec<Param<String>>),
-    Film(String, Vec<Param<String>>),
-    Filter(String, Vec<Param<String>>),
-    Integrator(String, Vec<Param<String>>),
-    Accelerator(String, Vec<Param<String>>),
+    Camera(String, Vec<Param>),
+    Sampler(String, Vec<Param>),
+    Film(String, Vec<Param>),
+    Filter(String, Vec<Param>),
+    Integrator(String, Vec<Param>),
+    Accelerator(String, Vec<Param>),
     // Mediums
     // Tf times
 }
@@ -61,7 +62,7 @@ pub fn header_stmt(s: &str) -> IResult<&str, HeaderStmt> {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum WorldStmt<S: AsRef<str> = Rc<str>> {
+pub enum WorldStmt<S: AsRef<str> = Arc<str>> {
     AttributeBegin,
     AttributeEnd,
     TransformBegin,
@@ -107,7 +108,7 @@ pub struct TextureStmt<S: AsRef<str>> {
 
 macro_rules! type_and_params {
     ($fn_name:ident, $constructor:expr) => {
-        fn $fn_name(s: &str) -> IResult<&str, WorldStmt<&str>> {
+        fn $fn_name(s: &str) -> IResult<&str, WorldStmt<Arc<str>>> {
             let (s, (ty, params)) = separated_pair(quoted_string, opt_ws, opt(parameter_list))(s)?;
             let params = params.unwrap_or(Vec::new());
             let stmt = $constructor(ty, params);
@@ -118,7 +119,7 @@ macro_rules! type_and_params {
 
 macro_rules! quoted_string {
     ($fn_name:ident, $constructor:expr) => {
-        fn $fn_name(s: &str) -> IResult<&str, WorldStmt<&str>> {
+        fn $fn_name(s: &str) -> IResult<&str, WorldStmt<Arc<str>>> {
             let (s, name) = quoted_string(s)?;
             let stmt = $constructor(name);
             Ok((s, stmt))
@@ -156,7 +157,7 @@ static WORLD_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
         .build(&WORLD_STMT_KW)
 });
 
-pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt<&str>> {
+pub(crate) fn world_stmt(s: &str) -> IResult<&str, WorldStmt<Arc<str>>> {
     use crate::WorldStmt::*;
 
     let kw_match = WORLD_KW_MATCHER.find(s);
@@ -204,7 +205,7 @@ quoted_string!(parse_include_params, WorldStmt::Include);
 
 // `Texture "name" "type" "class" params...`
 // TODO opt ws
-fn texture_params(s: &str) -> IResult<&str, WorldStmt<&str>> {
+fn texture_params(s: &str) -> IResult<&str, WorldStmt<Arc<str>>> {
     let parser = tuple((
         opt_ws_term(quoted_string),
         opt_ws_term(quoted_string),
@@ -216,7 +217,7 @@ fn texture_params(s: &str) -> IResult<&str, WorldStmt<&str>> {
     })(s)
 }
 
-pub fn medium_interface_params(s: &str) -> IResult<&str, WorldStmt<&str>> {
+pub fn medium_interface_params(s: &str) -> IResult<&str, WorldStmt<Arc<str>>> {
     map(
         tuple((ws_term(quoted_string), quoted_string)),
         |(med1, med2)| WorldStmt::MediumInterface(med1, med2),
@@ -269,7 +270,7 @@ mod tests {
     #[test]
     fn test_no_params() {
         let input = r#"Shape "sphere""#;
-        let expected = WorldStmt::Shape("sphere", vec![]);
+        let expected = WorldStmt::Shape("sphere".into(), vec![]);
 
         assert_eq!(world_stmt(input), ok_consuming(expected));
     }

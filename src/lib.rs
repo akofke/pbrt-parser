@@ -14,6 +14,9 @@ pub use params::{Param, ParamVal};
 pub use parser::{ParserError, PbrtParser, PbrtScene};
 pub use statements::{HeaderStmt, WorldStmt};
 pub use transform::TransformStmt;
+use once_cell::sync::Lazy;
+use crate::interner::StringInterner;
+use std::sync::Arc;
 
 #[macro_use]
 pub mod macros;
@@ -26,11 +29,14 @@ mod interner;
 pub type Float2 = [f32; 2];
 pub type Float3 = [f32; 3];
 
-fn quoted_string<'a, S: From<&'a str>>(s: &'a str) -> IResult<&'a str, S> {
+pub static STR_POOL: Lazy<StringInterner> = Lazy::new(|| Default::default());
+
+fn quoted_string(s: &str) -> IResult<&str, Arc<str>> {
     let (s, _) = tag("\"")(s)?;
     let (s, contents) = s.split_at_position_complete(|c| c == '\"')?;
     let (s, _) = tag("\"")(s)?;
-    Ok((s, contents.into()))
+    let interned = STR_POOL.get_or_intern(contents);
+    Ok((s, interned))
 }
 
 fn quoted_string_owned(s: &str) -> IResult<&str, String> {

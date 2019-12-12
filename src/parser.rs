@@ -13,6 +13,7 @@ use nom::Err;
 use memmap::Mmap;
 use crate::interner::StringInterner;
 use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -52,7 +53,7 @@ impl std::error::Error for ParserError {
 #[derive(Debug)]
 pub struct PbrtScene {
     pub header: Vec<HeaderStmt>,
-    pub world: Vec<WorldStmt<Rc<str>>>,
+    pub world: Vec<WorldStmt>,
 //    strings: StringInterner,
 }
 
@@ -62,11 +63,10 @@ impl PartialEq for PbrtScene {
     }
 }
 
-pub struct PbrtParser<> {
+pub struct PbrtParser {
     pub file_path: PathBuf,
     pub resolve_includes: bool,
-    world: Vec<WorldStmt<Rc<str>>>,
-    interner: StringInterner,
+    world: Vec<WorldStmt<Arc<str>>>,
 }
 
 impl PbrtParser {
@@ -77,7 +77,6 @@ impl PbrtParser {
             file_path,
             resolve_includes,
             world: Vec::new(),
-            interner: Default::default()
         }
     }
 
@@ -107,7 +106,6 @@ impl PbrtParser {
         let (_, _) = all_consuming(opt_ws_term(tag("WorldEnd")))(remain)?;
 
         let scene = PbrtScene { header, world: self.world };
-        dbg!(self.interner);
         Ok(scene)
     }
 
@@ -117,6 +115,7 @@ impl PbrtParser {
                 match stmt {
                     WorldStmt::Include(path) if self.resolve_includes => {
                         // TODO!!!!
+                        let path: &str = path.as_ref();
                         let mmap = self.read_include_path(path)?;
                         let contents_str = unsafe { std::str::from_utf8_unchecked(mmap.as_ref()) };
                         let (s, _) = opt_ws(contents_str)?;
@@ -125,8 +124,7 @@ impl PbrtParser {
                         Ok(())
                     },
                     stmt @ _ => {
-                        let interned_stmt = self.intern_stmt_strings(stmt);
-                        self.world.push(interned_stmt);
+                        self.world.push(stmt);
                         Ok(())
                     }
                 }
@@ -151,43 +149,6 @@ impl PbrtParser {
         // TODO
         eprintln!("Included {:?} in {} ms, contents size {} MiB", incl_file_path.as_os_str(), time.as_millis(), len as f64 / 1024.0 / 1024.0);
         Ok(mmap)
-    }
-
-    fn intern_stmt_strings(&self, stmt: WorldStmt<&str>) -> WorldStmt<Rc<str>> {
-        use WorldStmt::*;
-        let i = &self.interner;
-        match stmt {
-            AttributeBegin => AttributeBegin,
-            AttributeEnd => AttributeEnd,
-            TransformBegin => TransformBegin,
-            TransformEnd => TransformEnd,
-            ObjectEnd => ObjectEnd,
-            ReverseOrientation => ReverseOrientation,
-            ObjectBegin(s) => ObjectBegin(i.get_or_intern(s)),
-            Transform(tf) => Transform(tf),
-            Shape(s, p) => Shape(i.get_or_intern(s), self.intern_param_strings(p)),
-            ObjectInstance(s) => ObjectInstance(i.get_or_intern(s)),
-            LightSource(s, p) => LightSource(i.get_or_intern(s), self.intern_param_strings(p)),
-            AreaLightSource(s, p) => AreaLightSource(i.get_or_intern(s), self.intern_param_strings(p)),
-            Material(s, p) => Material(i.get_or_intern(s), self.intern_param_strings(p)),
-            MakeNamedMaterial(s, p) => MakeNamedMaterial(i.get_or_intern(s), self.intern_param_strings(p)),
-            NamedMaterial(s) => NamedMaterial(i.get_or_intern(s)),
-            Texture(tex) => {
-                let TextureStmt { name, ty, class, params } = *tex;
-                WorldStmt::texture(i.get_or_intern(name), i.get_or_intern(ty), i.get_or_intern(class), self.intern_param_strings(params))
-            },
-            MakeNamedMedium(s, p) => MakeNamedMedium(i.get_or_intern(s), self.intern_param_strings(p)),
-            MediumInterface(s1, s2) => MediumInterface(i.get_or_intern(s1), i.get_or_intern(s2)),
-            Include(s) => Include(i.get_or_intern(s)),
-        }
-    }
-
-    fn intern_param_strings(&self, params: Vec<Param<&str>>) -> Vec<Param<Rc<str>>> {
-        params.into_iter().map(|p| p.map_strings(|s| self.interner.get_or_intern(s))).collect()
-    }
-
-    pub fn interner(&self) -> &StringInterner {
-        &self.interner
     }
 }
 
