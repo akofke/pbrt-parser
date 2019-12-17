@@ -1,2 +1,4 @@
 
 ObjectInstance "foo"
+
+Include "includedir/include2.txt"

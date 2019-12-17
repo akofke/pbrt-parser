@@ -1,4 +1,4 @@
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{alphanumeric1, digit1};
@@ -73,6 +73,7 @@ const PARAM_KW: [&'static str; 18] = [
 static PARAM_KW_MATCHER: Lazy<AhoCorasick> = Lazy::new(|| {
     AhoCorasickBuilder::new()
         .auto_configure(&PARAM_KW)
+        .match_kind(MatchKind::LeftmostLongest)
         .anchored(true)
         .dfa(true)
         .build(&PARAM_KW)
@@ -189,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parameter() {
+    fn test_all_params_success() {
         use ParamVal::*;
         assert_eq!(
             parameter(r#""float foo" [1.2]"#),
@@ -203,15 +204,12 @@ mod tests {
 
         assert_eq!(
             parameter(r#""vector foo" [1 1 1 2 2 2 3 3 3]"#),
-            ok_consuming(Param::new(
-                "foo".into(),
-                Vector3(vec![[1.0, 1.0, 1.0], [2.0, 2.0, 2.0], [3.0, 3.0, 3.0]])
-            ))
+            ok_consuming(param!(foo, Vector3([1.0, 1.0, 1.0], [2.0, 2.0, 2.0], [3.0, 3.0, 3.0])))
         );
 
         assert_eq!(
-            parameter(r#""vector foo" [1 1 1 2 2 2 3 3 ]"#),
-            Err(Failure(("3 3 ]", ErrorKind::Tag)))
+            dbg!(parameter(r#""vector3 foo" [1 1 1 2 2 2 3 3 3]"#)),
+            ok_consuming(param!(foo, Vector3([1.0, 1.0, 1.0], [2.0, 2.0, 2.0], [3.0, 3.0, 3.0])))
         );
 
         assert_eq!(
@@ -225,9 +223,31 @@ mod tests {
         );
 
         assert_eq!(
+            parameter(r#""vector2 st" [ 0 1 1 0 ] "#),
+            Ok((" ", param!(st, Vector2([0.0, 1.0], [1.0, 0.0]))))
+        );
+
+        assert_eq!(
+            parameter(r#""point2 st" [ 0 1 1 0 ] "#),
+            Ok((" ", param!(st, Point2([0.0, 1.0], [1.0, 0.0]))))
+        );
+    }
+
+    #[test]
+    fn test_parameter_err() {
+        use ParamVal::*;
+
+        assert_eq!(
+            parameter(r#""vector foo" [1 1 1 2 2 2 3 3 ]"#),
+            Err(Failure(("3 3 ]", ErrorKind::Tag)))
+        );
+
+
+        assert_eq!(
             parameter(r#""string foo" [1 ]"#),
             Err(Failure(("1 ]", ErrorKind::Tag)))
         );
+
     }
 
     #[test]

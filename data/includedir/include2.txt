@@ -1,0 +1,9 @@
+AttributeBegin
+Shape "trianglemesh" "point P" [ 1 1 1 ]
+
+"point2 st" [
+    0 1
+    1 0   
+]
+
+AttributeEnd

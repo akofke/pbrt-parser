@@ -2,14 +2,14 @@
 #[macro_export]
 macro_rules! param {
     ($param_name:ident, $param_type:ident($($val:expr),+)) => {
-        crate::params::Param::new(stringify!($param_name).into(), crate::params::ParamVal::$param_type(vec![$($val.into()),+]))
+        $crate::Param::new(stringify!($param_name).into(), $crate::ParamVal::$param_type(vec![$($val.into()),+]))
     };
 }
 
 #[macro_export]
 macro_rules! tf {
     ($tf_type:ident($($x:expr),+)) => {
-        crate::transform::TransformStmt::$tf_type(Box::new([$($x as f32),+]))
+        $crate::transform::TransformStmt::$tf_type(Box::new([$($x as f32),+]))
     };
 }
 

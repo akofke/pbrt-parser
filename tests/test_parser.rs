@@ -1,4 +1,4 @@
-use pbrt_parser::{WorldStmt as Ws, PbrtScene, PbrtParser};
+use pbrt_parser::{WorldStmt as Ws, PbrtScene, PbrtParser, param};
 
 #[test]
 fn parse_file() {
@@ -11,6 +11,12 @@ fn parse_file() {
         Ws::ObjectEnd,
         Ws::AttributeEnd,
         Ws::ObjectInstance("foo".into()),
+        Ws::AttributeBegin,
+        Ws::Shape("trianglemesh".into(), vec![
+            param!(P, Point3([1.0, 1.0, 1.0])),
+            param!(st, Point2([0.0, 1.0], [1.0, 0.0])),
+        ]),
+        Ws::AttributeEnd,
     ];
     let expected = PbrtScene {header, world};
 
