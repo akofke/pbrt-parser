@@ -89,7 +89,6 @@ fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
     let (s, name) = alphanumeric1(s)?;
 
     let (s, _) = opt_ws_term(tag("\""))(s)?;
-    let (s, found_bracket) = opt(opt_ws_term(tag("[")))(s).map(|(s, o)| (s, o.is_some()))?;
 
     let (s, val) = match param_type_match.pattern() {
         0 => int_vals(s),
@@ -109,12 +108,6 @@ fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
         n @ _ => panic!("{}", n),
     }?;
 
-    let s = if found_bracket {
-        cut(preceded(opt_ws, tag("]")))(s)?.0
-    } else {
-        s
-    };
-
     let name = STR_POOL.get_or_intern(name);
     let param = Param::new(name, val);
     Ok((s, param))
@@ -123,7 +116,14 @@ fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
 macro_rules! val_list {
     ($fn_name:ident, $val_parser:expr, $constructor:ident) => {
         fn $fn_name(s: &str) -> IResult<&str, ParamVal> {
-            let (s, val) = cut(separated_list(ws_or_comment, $val_parser))(s)?;
+            let (s, found_bracket) = opt(opt_ws_term(tag("[")))(s).map(|(s, o)| (s, o.is_some()))?;
+            let (s, val) = if found_bracket {
+                let (s, val) = cut(opt_ws_term(separated_list(ws_or_comment, $val_parser)))(s)?;
+                let (s, _) = cut(tag("]"))(s)?;
+                (s, val)
+            } else {
+                map($val_parser, |v| vec![v])(s)?
+            };
             let pval = ParamVal::$constructor(val);
             Ok((s, pval))
         }
@@ -180,16 +180,11 @@ mod tests {
     #[test]
     fn test_val_list() {
         assert_eq!(
-            vector3_vals("1 2 3 1 2 3"),
+            vector3_vals("[1 2 3 1 2 3]"),
             Ok((
                 "",
                 ParamVal::Vector3(vec![[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
             ))
-        );
-
-        assert_eq!(
-            vector3_vals("1 2 3 1 2 "),
-            Ok((" 1 2 ", ParamVal::Vector3(vec![[1.0, 2.0, 3.0]])))
         );
     }
 
@@ -262,5 +257,16 @@ mod tests {
             param!(cropwindow, Float(0.2, 0.5, 0.3, 0.8)),
         ];
         assert_eq!(parameter_list(input), Ok((" ", expected)))
+    }
+
+    #[test]
+    fn test_ambiguous_strings() {
+        let input = r#""string foo" "foo" "float notastring" 1.0"#;
+        let expected = vec![
+            param!(foo, String("foo")),
+            param!(notastring, Float(1.0)),
+        ];
+
+        assert_eq!(parameter_list(input), ok_consuming(expected));
     }
 }
