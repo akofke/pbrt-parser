@@ -6,7 +6,7 @@ use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{multispace1, none_of};
 use nom::combinator::{map, map_res, opt};
 use nom::{IResult, InputTakeAtPosition, AsBytes};
-use nom::multi::{many0, many1, separated_nonempty_list};
+use nom::multi::{many0, separated_list1};
 use nom::number::complete::float;
 use nom::sequence::{delimited, terminated};
 
@@ -51,7 +51,7 @@ fn quoted_string_owned(s: &str) -> IResult<&str, String> {
 #[inline]
 fn ws_term<'a, T>(
     f: impl Fn(&'a str) -> IResult<&'a str, T>,
-) -> impl Fn(&'a str) -> IResult<&'a str, T> {
+) -> impl FnMut(&'a str) -> IResult<&'a str, T> {
     terminated(f, ws_or_comment)
 }
 
@@ -63,8 +63,8 @@ pub fn opt_ws(s: &str) -> IResult<&str, ()> {
 
 #[inline]
 fn opt_ws_term<'a, T>(
-    f: impl Fn(&'a str) -> IResult<&'a str, T>,
-) -> impl Fn(&'a str) -> IResult<&'a str, T> {
+    f: impl FnMut(&'a str) -> IResult<&'a str, T>,
+) -> impl FnMut(&'a str) -> IResult<&'a str, T> {
     terminated(f, opt_ws)
 }
 
@@ -78,7 +78,7 @@ where
 }
 
 fn float_list(s: &str) -> IResult<&str, Vec<f32>> {
-    separated_nonempty_list(ws_or_comment, float)(s)
+    separated_list1(ws_or_comment, float)(s)
 }
 
 #[inline]

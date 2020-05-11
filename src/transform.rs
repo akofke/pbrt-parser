@@ -22,7 +22,7 @@ pub enum TransformStmt {
 fn tagged_float_list<'s, A, M>(
     tag_name: &'static str,
     stmt_mapper: M
-) -> impl Fn(&'s str) -> IResult<&'s str, TransformStmt>
+) -> impl FnMut(&'s str) -> IResult<&'s str, TransformStmt>
     where
         Box<A>: TryFrom<Box<[f32]>>,
         M: Fn(Box<A>) -> TransformStmt

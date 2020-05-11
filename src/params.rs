@@ -6,7 +6,7 @@ use nom::combinator::{cut, map, map_res, opt};
 use nom::Err::Error;
 use nom::error::ErrorKind;
 use nom::IResult;
-use nom::multi::separated_list;
+use nom::multi::separated_list0;
 use nom::number::complete::float;
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use once_cell::sync::Lazy;
@@ -46,7 +46,7 @@ pub enum ParamVal<S: AsRef<str>=Arc<str>> {
 }
 
 pub(crate) fn parameter_list(s: &str) -> IResult<&str, Vec<Param>> {
-    separated_list(ws_or_comment, parameter)(s)
+    separated_list0(ws_or_comment, parameter)(s)
 }
 
 const PARAM_KW: [&'static str; 18] = [
@@ -119,7 +119,7 @@ macro_rules! val_list {
         fn $fn_name(s: &str) -> IResult<&str, ParamVal> {
             let (s, found_bracket) = opt(opt_ws_term(tag("[")))(s).map(|(s, o)| (s, o.is_some()))?;
             let (s, val) = if found_bracket {
-                let (s, val) = cut(opt_ws_term(separated_list(ws_or_comment, $val_parser)))(s)?;
+                let (s, val) = cut(opt_ws_term(separated_list0(ws_or_comment, $val_parser)))(s)?;
                 let (s, _) = cut(tag("]"))(s)?;
                 (s, val)
             } else {

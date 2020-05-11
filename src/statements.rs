@@ -20,7 +20,7 @@ use std::sync::Arc;
 fn tagged_named_params<'a, T, F>(
     tag_str: &'static str,
     f: F,
-) -> impl Fn(&'a str) -> IResult<&'a str, T>
+) -> impl FnMut(&'a str) -> IResult<&'a str, T>
 where
     F: Fn(String, Vec<Param>) -> T,
 {
