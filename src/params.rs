@@ -3,7 +3,8 @@ use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::{alphanumeric1, digit1};
 use nom::combinator::{cut, map, map_res, opt};
-use nom::Err::Error;
+use nom::Err;
+use nom::error::Error;
 use nom::error::ErrorKind;
 use nom::IResult;
 use nom::multi::separated_list0;
@@ -84,7 +85,7 @@ fn parameter(s: &str) -> IResult<&str, Param<Arc<str>>> {
 
     let (s, _) = opt_ws_term(tag("\""))(s)?;
 
-    let param_type_match = PARAM_KW_MATCHER.find(s).ok_or(Error((s, ErrorKind::Tag)))?;
+    let param_type_match = PARAM_KW_MATCHER.find(s).ok_or(Err::Error(Error::new(s, ErrorKind::Tag)))?;
     let s = &s[param_type_match.end()..];
     let (s, _) = opt_ws(s)?;
     let (s, name) = alphanumeric1(s)?;
@@ -172,7 +173,7 @@ fn float3(s: &str) -> IResult<&str, Float3> {
 #[cfg(test)]
 mod tests {
     use nom::Err::{Failure};
-    use nom::error::{ErrorKind};
+    use nom::error::{ErrorKind, make_error};
 
     use crate::test_helpers::{ok_consuming};
 
@@ -239,13 +240,13 @@ mod tests {
 
         assert_eq!(
             parameter(r#""vector foo" [1 1 1 2 2 2 3 3 ]"#),
-            Err(Failure(("3 3 ]", ErrorKind::Tag)))
+            Err(Failure(make_error("3 3 ]", ErrorKind::Tag)))
         );
 
 
         assert_eq!(
             parameter(r#""string foo" [1 ]"#),
-            Err(Failure(("1 ]", ErrorKind::Tag)))
+            Err(Failure(make_error("1 ]", ErrorKind::Tag)))
         );
 
     }

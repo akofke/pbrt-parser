@@ -1,5 +1,7 @@
 use crate::statements::{HeaderStmt, WorldStmt, world_stmt, header_stmt, TextureStmt};
 use nom::IResult;
+use nom::Finish;
+use nom::error::Error;
 use nom::sequence::{delimited, preceded, terminated};
 use crate::{ws_term, ws_or_comment, opt_ws_term, opt_ws, Param};
 use nom::multi::{many0};
@@ -24,6 +26,17 @@ pub enum ParserError {
 impl From<std::io::Error> for ParserError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
+    }
+}
+
+impl From<nom::Err<nom::error::Error<&str>>> for ParserError {
+    fn from(e: nom::Err<nom::error::Error<&str>>) -> Self {
+        let f = match e {
+            Err::Incomplete(n) => Err::Incomplete(n),
+            Err::Error(Error { input, code }) => Err::Error((input.lines().next().unwrap().to_string(), code)),
+            Err::Failure(Error { input, code }) => Err::Failure((input.lines().next().unwrap().to_string(), code)),
+        };
+        Self::Parse(f)
     }
 }
 

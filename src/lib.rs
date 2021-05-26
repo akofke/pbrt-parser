@@ -17,7 +17,8 @@ pub use transform::TransformStmt;
 use once_cell::sync::Lazy;
 use crate::interner::StringInterner;
 use std::sync::Arc;
-use nom::Err::Error;
+use nom::Err;
+use nom::error::Error;
 use nom::error::ErrorKind;
 
 #[macro_use]
@@ -85,7 +86,7 @@ fn float_list(s: &str) -> IResult<&str, Vec<f32>> {
 pub fn ws_or_comment(s: &str) -> IResult<&str, ()> {
     let trimmed = unsafe { std::str::from_utf8_unchecked(eat_opt_ws(s.as_bytes())) };
     if std::ptr::eq(s, trimmed) || s.is_empty() && trimmed.is_empty() {
-        Err(Error((s, ErrorKind::MultiSpace)))
+        Err(Err::Error(Error::new(s, ErrorKind::MultiSpace)))
     } else {
         Ok((trimmed, ()))
     }
@@ -144,6 +145,7 @@ where
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use std::fmt::Debug;
+    use nom::error::Error;
     use nom::error::ErrorKind;
     use nom::IResult;
 
@@ -156,13 +158,13 @@ pub(crate) mod test_helpers {
         err: ErrorKind,
         s: &str,
     ) {
-        assert_eq!(f(s), Err(nom::Err::Error((s, err))));
+        assert_eq!(f(s), Err(nom::Err::Error(Error::new(s, err))));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use nom::error::ErrorKind;
+    use nom::error::{Error, ErrorKind};
 
     use crate::{fixed_float_list, float_list, ws_or_comment, opt_ws};
 
@@ -192,7 +194,7 @@ mod tests {
         );
         assert_eq!(
             fixed_float_list::<[f32; 2]>("1.0 2 3.2"),
-            Err(nom::Err::Error(("1.0 2 3.2", ErrorKind::MapRes)))
+            Err(nom::Err::Error(Error::new("1.0 2 3.2", ErrorKind::MapRes)))
         )
     }
 }
